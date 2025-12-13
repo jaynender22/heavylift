@@ -1,5 +1,6 @@
+"use strict";
 // src/content.ts
-// ---- field scanning + filling logic lives here now (no imports) ----
+// ---------- field scanning + filling logic ----------
 let nextId = 1;
 function inferFieldType(el) {
     const tag = el.tagName.toLowerCase();
@@ -24,19 +25,19 @@ function inferFieldType(el) {
             return 'number';
         if (t === 'date')
             return 'date';
+        if (t === 'file')
+            return 'unknown'; // treat file inputs as non-fillable
         return 'text';
     }
     return 'unknown';
 }
 function findLabelText(element) {
-    // 1) <label for="id">
     const id = element.id;
     if (id) {
         const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
         if (label)
             return label.textContent?.trim() || '';
     }
-    // 2) Parent <label>
     let parent = element;
     while (parent) {
         if (parent.tagName.toLowerCase() === 'label') {
@@ -44,7 +45,6 @@ function findLabelText(element) {
         }
         parent = parent.parentElement;
     }
-    // 3) Previous sibling text
     const prev = element.previousElementSibling;
     if (prev && /label|span|p|div/i.test(prev.tagName)) {
         const text = prev.textContent?.trim();
@@ -58,7 +58,6 @@ function scanFieldsInDocument() {
     const selectors = ['input', 'textarea', 'select'];
     const elements = Array.from(document.querySelectorAll(selectors.join(',')));
     for (const el of elements) {
-        // Skip hidden inputs
         if (el.tagName.toLowerCase() === 'input') {
             const input = el;
             if (input.type === 'hidden')
@@ -73,7 +72,6 @@ function scanFieldsInDocument() {
         if (el.tagName.toLowerCase() === 'select') {
             options = Array.from(el.options).map((o) => o.textContent?.trim() || '');
         }
-        // Ensure id is always a string
         let id = el.getAttribute('data-heavylift-id') || `field-${nextId++}`;
         el.setAttribute('data-heavylift-id', id);
         const field = {
@@ -99,6 +97,11 @@ function fillField(selector, value) {
         return;
     if (el.tagName.toLowerCase() === 'input') {
         const input = el;
+        // Never try to set value on file inputs – browsers forbid it
+        if (input.type === 'file') {
+            console.log('[Heavylift] skipping file input:', input.name || input.id);
+            return;
+        }
         if (input.type === 'checkbox') {
             input.checked = Boolean(value);
             input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -132,27 +135,45 @@ function fillField(selector, value) {
         }
     }
 }
-// ---- message handler ----
+// --------- Log when the content script loads ---------
+console.log('[Heavylift] content script loaded on', window.location.href);
+// ---------- message handler ----------
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    console.log('[Heavylift] received message', message);
     if (message.type === 'SCAN_FIELDS') {
-        const fields = scanFieldsInDocument();
-        const response = {
-            type: 'SCAN_FIELDS_RESULT',
-            fields,
-        };
-        sendResponse(response);
+        try {
+            const fields = scanFieldsInDocument();
+            console.log('[Heavylift] scanned fields:', fields.length);
+            const response = {
+                type: 'SCAN_FIELDS_RESULT',
+                fields,
+            };
+            sendResponse(response);
+        }
+        catch (e) {
+            console.error('[Heavylift] error scanning fields', e);
+            sendResponse({
+                type: 'SCAN_FIELDS_RESULT',
+                fields: [],
+            });
+        }
         return true;
     }
     if (message.type === 'FILL_FIELDS') {
-        const fillReq = message;
-        for (const { fieldId, value } of fillReq.values) {
-            const selector = `[data-heavylift-id="${fieldId}"]`;
-            fillField(selector, value);
+        try {
+            const fillReq = message;
+            for (const { fieldId, value } of fillReq.values) {
+                const selector = `[data-heavylift-id="${fieldId}"]`;
+                fillField(selector, value);
+            }
+            sendResponse({ ok: true });
         }
-        sendResponse({ ok: true });
+        catch (e) {
+            console.error('[Heavylift] error filling fields', e);
+            sendResponse({ ok: false });
+        }
         return true;
     }
     return false;
 });
-export {};
 //# sourceMappingURL=content.js.map

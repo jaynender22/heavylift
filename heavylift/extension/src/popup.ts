@@ -1,19 +1,58 @@
 // src/popup.ts
 
-import type {
-  ScanFieldsRequest,
-  ScanFieldsResponse,
-  FillFieldsRequest,
-  FieldInfo,
-} from './types';
+// Local types (popup-only, prefixed)
+
+type PopupFieldType =
+  | 'text'
+  | 'textarea'
+  | 'checkbox'
+  | 'radio'
+  | 'select'
+  | 'email'
+  | 'tel'
+  | 'url'
+  | 'number'
+  | 'date'
+  | 'unknown';
+
+interface PopupFieldInfo {
+  id: string;
+  domSelector: string;
+  label: string;
+  placeholder?: string;
+  name?: string | null;
+  htmlType?: string | null;
+  tagName: string;
+  fieldType: PopupFieldType;
+  options?: string[];
+}
+
+interface PopupScanFieldsRequest {
+  type: 'SCAN_FIELDS';
+}
+
+interface PopupScanFieldsResponse {
+  type: 'SCAN_FIELDS_RESULT';
+  fields: PopupFieldInfo[];
+}
+
+interface PopupFillFieldValue {
+  fieldId: string;
+  value: string | string[] | boolean;
+}
+
+interface PopupFillFieldsRequest {
+  type: 'FILL_FIELDS';
+  values: PopupFillFieldValue[];
+}
+
+// ---------- UI logic ----------
 
 const scanBtn = document.getElementById('scanBtn') as HTMLButtonElement;
-const testFillBtn = document.getElementById(
-  'testFillBtn'
-) as HTMLButtonElement;
+const testFillBtn = document.getElementById('testFillBtn') as HTMLButtonElement;
 const fieldList = document.getElementById('fieldList') as HTMLDivElement;
 
-let currentFields: FieldInfo[] = [];
+let currentFields: PopupFieldInfo[] = [];
 
 function getActiveTab(): Promise<chrome.tabs.Tab> {
   return new Promise((resolve, reject) => {
@@ -31,12 +70,19 @@ function getActiveTab(): Promise<chrome.tabs.Tab> {
 async function scanFields() {
   try {
     const tab = await getActiveTab();
-    const req: ScanFieldsRequest = { type: 'SCAN_FIELDS' };
+    const req: PopupScanFieldsRequest = { type: 'SCAN_FIELDS' };
 
     chrome.tabs.sendMessage(
       tab.id!,
       req,
-      (response: ScanFieldsResponse | undefined) => {
+      (response?: PopupScanFieldsResponse) => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          console.error('[Heavylift popup] sendMessage error:', err);
+          fieldList.innerHTML = `<p>Error talking to page: ${err.message}</p>`;
+          return;
+        }
+
         if (!response || !response.fields) {
           fieldList.innerHTML = '<p>Could not read fields on this page.</p>';
           return;
@@ -47,12 +93,12 @@ async function scanFields() {
       }
     );
   } catch (err) {
-    console.error(err);
+    console.error('[Heavylift popup] scanFields error:', err);
     fieldList.innerHTML = '<p>Error scanning fields.</p>';
   }
 }
 
-function renderFieldList(fields: FieldInfo[]) {
+function renderFieldList(fields: PopupFieldInfo[]) {
   if (!fields.length) {
     fieldList.innerHTML = '<p>No fields detected.</p>';
     return;
@@ -86,27 +132,33 @@ async function testFill() {
   try {
     const tab = await getActiveTab();
 
-    const values: FillFieldsRequest['values'] = currentFields
-      .filter((f) =>
-        ['text', 'textarea', 'email', 'tel', 'url', 'number'].includes(
-          f.fieldType
-        )
+    const values: PopupFillFieldsRequest['values'] = currentFields
+      .filter(
+        (f) =>
+          ['text', 'textarea', 'email', 'tel', 'url', 'number'].includes(
+            f.fieldType
+          ) && f.htmlType !== 'file' // skip file inputs
       )
       .map((f) => ({
         fieldId: f.id,
         value: 'demo',
       }));
 
-    const req: FillFieldsRequest = {
+    const req: PopupFillFieldsRequest = {
       type: 'FILL_FIELDS',
       values,
     };
 
     chrome.tabs.sendMessage(tab.id!, req, (resp) => {
-      console.log('Fill response:', resp);
+      const err = chrome.runtime.lastError;
+      if (err) {
+        console.error('[Heavylift popup] sendMessage error (fill):', err);
+        return;
+      }
+      console.log('[Heavylift popup] fill response:', resp);
     });
   } catch (err) {
-    console.error('Test fill error:', err);
+    console.error('[Heavylift popup] testFill error:', err);
   }
 }
 
@@ -118,4 +170,5 @@ testFillBtn.addEventListener('click', () => {
   testFill();
 });
 
+// Auto-scan when popup opens
 scanFields();

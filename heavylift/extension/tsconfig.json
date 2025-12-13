@@ -1,34 +1,26 @@
 {
   "compilerOptions": {
-    // Where TS reads from / writes to
     "rootDir": "./src",
     "outDir": "./dist",
 
-    // Target: browser extension
+    "target": "esnext",
     "module": "esnext",
     "moduleResolution": "node",
-    "target": "esnext",
-    "lib": ["DOM", "ESNext"],
 
-    // So TypeScript knows about chrome.*
+    "lib": ["DOM", "ESNext"],
     "types": ["chrome"],
 
-    // Outputs
     "sourceMap": true,
     "declaration": false,
     "declarationMap": false,
 
-    // Strictness
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
 
-    // Misc
     "jsx": "react-jsx",
-    "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
-    "moduleDetection": "force",
     "skipLibCheck": true
   },
   "include": ["src"]

@@ -1,4 +1,6 @@
+"use strict";
 // src/popup.ts
+// ---------- UI logic ----------
 const scanBtn = document.getElementById('scanBtn');
 const testFillBtn = document.getElementById('testFillBtn');
 const fieldList = document.getElementById('fieldList');
@@ -21,6 +23,12 @@ async function scanFields() {
         const tab = await getActiveTab();
         const req = { type: 'SCAN_FIELDS' };
         chrome.tabs.sendMessage(tab.id, req, (response) => {
+            const err = chrome.runtime.lastError;
+            if (err) {
+                console.error('[Heavylift popup] sendMessage error:', err);
+                fieldList.innerHTML = `<p>Error talking to page: ${err.message}</p>`;
+                return;
+            }
             if (!response || !response.fields) {
                 fieldList.innerHTML = '<p>Could not read fields on this page.</p>';
                 return;
@@ -30,7 +38,7 @@ async function scanFields() {
         });
     }
     catch (err) {
-        console.error(err);
+        console.error('[Heavylift popup] scanFields error:', err);
         fieldList.innerHTML = '<p>Error scanning fields.</p>';
     }
 }
@@ -64,7 +72,8 @@ async function testFill() {
     try {
         const tab = await getActiveTab();
         const values = currentFields
-            .filter((f) => ['text', 'textarea', 'email', 'tel', 'url', 'number'].includes(f.fieldType))
+            .filter((f) => ['text', 'textarea', 'email', 'tel', 'url', 'number'].includes(f.fieldType) && f.htmlType !== 'file' // skip file inputs
+        )
             .map((f) => ({
             fieldId: f.id,
             value: 'demo',
@@ -74,11 +83,16 @@ async function testFill() {
             values,
         };
         chrome.tabs.sendMessage(tab.id, req, (resp) => {
-            console.log('Fill response:', resp);
+            const err = chrome.runtime.lastError;
+            if (err) {
+                console.error('[Heavylift popup] sendMessage error (fill):', err);
+                return;
+            }
+            console.log('[Heavylift popup] fill response:', resp);
         });
     }
     catch (err) {
-        console.error('Test fill error:', err);
+        console.error('[Heavylift popup] testFill error:', err);
     }
 }
 scanBtn.addEventListener('click', () => {
@@ -87,6 +101,6 @@ scanBtn.addEventListener('click', () => {
 testFillBtn.addEventListener('click', () => {
     testFill();
 });
+// Auto-scan when popup opens
 scanFields();
-export {};
 //# sourceMappingURL=popup.js.map
