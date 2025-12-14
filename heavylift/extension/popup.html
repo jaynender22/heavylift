@@ -9,24 +9,32 @@
           sans-serif;
         margin: 0;
         padding: 12px;
-        width: 360px;
+        width: 380px;
         box-sizing: border-box;
       }
       h1 {
         font-size: 16px;
         margin: 0 0 8px 0;
       }
+      h2 {
+        font-size: 13px;
+        margin: 12px 0 6px 0;
+      }
       button {
         padding: 6px 10px;
         margin: 4px 4px 4px 0;
         cursor: pointer;
+        font-size: 12px;
+      }
+      .section {
+        margin-bottom: 8px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 8px;
       }
       .field-list {
-        max-height: 260px;
+        max-height: 220px;
         overflow-y: auto;
         margin-top: 8px;
-        border-top: 1px solid #eee;
-        padding-top: 8px;
       }
       .field-item {
         padding: 4px 0;
@@ -40,12 +48,78 @@
         font-size: 11px;
         color: #555;
       }
+      .profile-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .profile-row {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .profile-row label {
+        font-size: 11px;
+      }
+      .profile-row input {
+        font-size: 12px;
+        padding: 4px 6px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+      }
+      #status {
+        font-size: 11px;
+        color: #555;
+        margin-top: 4px;
+      }
     </style>
   </head>
   <body>
     <h1>Heavylift</h1>
-    <button id="scanBtn">Scan fields</button>
-    <button id="testFillBtn">Test fill with "demo"</button>
+
+    <div class="section">
+      <button id="scanBtn">Scan fields</button>
+      <button id="testFillBtn">Test fill with "demo"</button>
+    </div>
+
+    <div class="section">
+      <h2>Your profile</h2>
+      <div class="profile-grid">
+        <div class="profile-row">
+          <label for="profileFullName">Full name</label>
+          <input id="profileFullName" type="text" />
+        </div>
+        <div class="profile-row">
+          <label for="profileEmail">Email</label>
+          <input id="profileEmail" type="email" />
+        </div>
+        <div class="profile-row">
+          <label for="profilePhone">Phone</label>
+          <input id="profilePhone" type="tel" />
+        </div>
+        <div class="profile-row">
+          <label for="profileLocation">Location (city, country)</label>
+          <input id="profileLocation" type="text" />
+        </div>
+        <div class="profile-row">
+          <label for="profileLinkedIn">LinkedIn URL</label>
+          <input id="profileLinkedIn" type="url" />
+        </div>
+        <div class="profile-row">
+          <label for="profileGithub">GitHub URL</label>
+          <input id="profileGithub" type="url" />
+        </div>
+        <div class="profile-row">
+          <label for="profilePortfolio">Portfolio URL</label>
+          <input id="profilePortfolio" type="url" />
+        </div>
+      </div>
+      <div style="margin-top: 6px;">
+        <button id="saveProfileBtn">Save profile</button>
+        <button id="fillProfileBtn">Fill from profile</button>
+      </div>
+      <div id="status"></div>
+    </div>
 
     <div class="field-list" id="fieldList"></div>
 
