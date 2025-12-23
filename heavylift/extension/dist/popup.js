@@ -253,16 +253,16 @@ function getActiveTab() {
 async function scanFields() {
     try {
         const tab = await getActiveTab();
-        const req = { type: "SCAN_FIELDS" };
+        const req = { type: 'SCAN_FIELDS' };
         chrome.tabs.sendMessage(tab.id, req, (response) => {
             const err = chrome.runtime.lastError;
             if (err) {
-                console.error("[Heavylift popup] sendMessage error:", err);
+                console.error('[Heavylift popup] sendMessage error:', err);
                 fieldList.innerHTML = `<p>Error talking to page: ${err.message}</p>`;
                 return;
             }
             if (!response || !response.fields) {
-                fieldList.innerHTML = "<p>Could not read fields on this page.</p>";
+                fieldList.innerHTML = '<p>Could not read fields on this page.</p>';
                 return;
             }
             currentFields = response.fields;
@@ -270,9 +270,10 @@ async function scanFields() {
             renderFieldList(currentFields);
         });
     }
-    catch (err) {
-        console.error("[Heavylift popup] scanFields error:", err);
-        fieldList.innerHTML = "<p>Error scanning fields.</p>";
+    catch (e) {
+        console.error('[Heavylift popup] scanFields exception:', e);
+        fieldList.innerHTML =
+            '<p>Error talking to page. See console for details.</p>';
     }
 }
 function renderFieldList(fields) {

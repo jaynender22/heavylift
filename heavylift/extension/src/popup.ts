@@ -493,24 +493,24 @@ function getActiveTab(): Promise<chrome.tabs.Tab> {
   });
 }
 
-async function scanFields() {
+async function scanPageFields(): Promise<void> {
   try {
     const tab = await getActiveTab();
-    const req: PopupScanFieldsRequest = { type: "SCAN_FIELDS" };
+    const req: PopupScanFieldsRequest = { type: 'SCAN_FIELDS' };
 
     chrome.tabs.sendMessage(
       tab.id!,
       req,
-      (response?: PopupScanFieldsResponse) => {
+      (response?: PopupScanFieldsResponse | any) => {
         const err = chrome.runtime.lastError;
         if (err) {
-          console.error("[Heavylift popup] sendMessage error:", err);
+          console.error('[Heavylift popup] sendMessage error:', err);
           fieldList.innerHTML = `<p>Error talking to page: ${err.message}</p>`;
           return;
         }
 
         if (!response || !response.fields) {
-          fieldList.innerHTML = "<p>Could not read fields on this page.</p>";
+          fieldList.innerHTML = '<p>Could not read fields on this page.</p>';
           return;
         }
 
@@ -519,11 +519,13 @@ async function scanFields() {
         renderFieldList(currentFields);
       }
     );
-  } catch (err) {
-    console.error("[Heavylift popup] scanFields error:", err);
-    fieldList.innerHTML = "<p>Error scanning fields.</p>";
+  } catch (e) {
+    console.error('[Heavylift popup] scanFields exception:', e);
+    fieldList.innerHTML =
+      '<p>Error talking to page. See console for details.</p>';
   }
 }
+
 
 function renderFieldList(fields: PopupFieldInfo[]) {
   if (!fields.length) {
@@ -555,7 +557,7 @@ function renderFieldList(fields: PopupFieldInfo[]) {
 
 async function testFill() {
   if (!currentFields.length) {
-    await scanFields();
+    await scanPageFields();
   }
 
   try {
@@ -595,7 +597,7 @@ async function testFill() {
 
 async function classifyCurrentFields(): Promise<ClassifiedField[]> {
   if (!currentFields.length) {
-    await scanFields();
+    await scanPageFields();
   }
 
   try {
@@ -651,7 +653,7 @@ async function fillFromSavedInfo() {
   }
 
   if (!currentFields.length) {
-    await scanFields();
+    await scanPageFields();
   }
 
   if (!currentClassifications.length) {
@@ -887,7 +889,7 @@ async function fillFromSavedInfo() {
 // ---------- Event wiring ----------
 
 scanBtn.addEventListener("click", () => {
-  scanFields();
+  scanPageFields();
 });
 
 testFillBtn.addEventListener("click", () => {
@@ -922,4 +924,4 @@ loadProfile().then((profile) => {
 loadPreferences().then((prefs) => {
   populatePreferencesInputs(prefs);
 });
-scanFields();
+scanPageFields();

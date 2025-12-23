@@ -1,179 +1,190 @@
 "use strict";
-// src/content.ts
-// ---------- field scanning + filling logic ----------
-let nextId = 1;
-function inferFieldType(el) {
-    const tag = el.tagName.toLowerCase();
-    if (tag === 'textarea')
-        return 'textarea';
-    if (tag === 'select')
-        return 'select';
-    if (tag === 'input') {
-        const input = el;
-        const t = (input.type || '').toLowerCase();
-        if (t === 'checkbox')
-            return 'checkbox';
-        if (t === 'radio')
-            return 'radio';
-        if (t === 'email')
-            return 'email';
-        if (t === 'tel')
-            return 'tel';
-        if (t === 'url')
-            return 'url';
-        if (t === 'number')
-            return 'number';
-        if (t === 'date')
-            return 'date';
-        if (t === 'file')
-            return 'unknown'; // treat file inputs as non-fillable
-        return 'text';
-    }
-    return 'unknown';
+// content.ts
+const fieldRegistry = new Map();
+console.log('[Heavylift] content script loaded on', window.location.href);
+/**
+ * Fire the events frameworks (React/Lever) listen to so they
+ * notice that we changed the field.
+ */
+function triggerInputEvents(el) {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
 }
-function findLabelText(element) {
-    const id = element.id;
-    if (id) {
-        const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
-        if (label)
-            return label.textContent?.trim() || '';
-    }
-    let parent = element;
-    while (parent) {
-        if (parent.tagName.toLowerCase() === 'label') {
-            return parent.textContent?.trim() || '';
-        }
-        parent = parent.parentElement;
-    }
-    const prev = element.previousElementSibling;
-    if (prev && /label|span|p|div/i.test(prev.tagName)) {
-        const text = prev.textContent?.trim();
-        if (text)
-            return text;
-    }
-    return '';
+/**
+ * Find associated label text for an element.
+ */
+function getLabelForElement(el) {
+    const id = el.id;
+    const labelEl = el.closest('label') ||
+        (id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null);
+    return labelEl?.textContent?.trim() ?? '';
 }
-function scanFieldsInDocument() {
+/**
+ * Scan the page for fields we can fill.
+ */
+function scanFields() {
     const fields = [];
-    const selectors = ['input', 'textarea', 'select'];
-    const elements = Array.from(document.querySelectorAll(selectors.join(',')));
-    for (const el of elements) {
-        if (el.tagName.toLowerCase() === 'input') {
-            const input = el;
-            if (input.type === 'hidden')
-                continue;
+    fieldRegistry.clear();
+    const elements = document.querySelectorAll('input, textarea, select');
+    elements.forEach((el, index) => {
+        let kind = null;
+        if (el instanceof HTMLTextAreaElement) {
+            kind = 'textarea';
         }
-        const fieldType = inferFieldType(el);
-        const label = findLabelText(el);
-        const name = el.name ||
-            null;
-        const placeholder = el.placeholder || '';
-        let options;
-        if (el.tagName.toLowerCase() === 'select') {
-            options = Array.from(el.options).map((o) => o.textContent?.trim() || '');
+        else if (el instanceof HTMLInputElement) {
+            if (['text', 'email', 'tel', 'url', 'number', 'search'].includes(el.type)) {
+                kind = 'text';
+            }
+            else if (el.type === 'radio') {
+                kind = 'radio';
+            }
         }
-        let id = el.getAttribute('data-heavylift-id') || `field-${nextId++}`;
-        el.setAttribute('data-heavylift-id', id);
-        const field = {
-            id,
-            domSelector: `[data-heavylift-id="${id}"]`,
-            label,
-            name,
-            placeholder,
-            htmlType: el.type || null,
-            tagName: el.tagName.toLowerCase(),
-            fieldType,
-        };
-        if (options) {
-            field.options = options;
+        else if (el instanceof HTMLSelectElement) {
+            kind = 'select';
         }
-        fields.push(field);
-    }
+        if (!kind)
+            return;
+        const existingId = el.id;
+        const id = existingId || `heavylift-${index}`;
+        if (!existingId)
+            el.id = id;
+        const labelEl = el.closest('label') ||
+            document.querySelector(`label[for="${CSS.escape(id)}"]`);
+        const label = labelEl?.textContent?.trim() ?? '';
+        fieldRegistry.set(id, el);
+        fields.push({ id, label, kind });
+    });
+    console.log('[Heavylift] scanned fields:', fields.length);
     return fields;
 }
-function fillField(selector, value) {
-    const el = document.querySelector(selector);
-    if (!el)
+/**
+ * Fill a single field with the given answer.
+ */
+function fillField(element, answer) {
+    if (!element)
         return;
-    if (el.tagName.toLowerCase() === 'input') {
-        const input = el;
-        // Never try to set value on file inputs – browsers forbid it
-        if (input.type === 'file') {
-            console.log('[Heavylift] skipping file input:', input.name || input.id);
+    const trimmed = answer.trim();
+    const normalized = trimmed.toLowerCase();
+    // 1) Input elements
+    if (element instanceof HTMLInputElement) {
+        // Text-like
+        if (['text', 'email', 'tel', 'url', 'number', 'search'].includes(element.type)) {
+            element.focus();
+            element.value = trimmed;
+            triggerInputEvents(element);
             return;
         }
-        if (input.type === 'checkbox') {
-            input.checked = Boolean(value);
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            return;
-        }
-        if (input.type === 'radio') {
-            input.checked = true;
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            return;
-        }
-        input.value = String(value);
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        return;
-    }
-    if (el.tagName.toLowerCase() === 'textarea') {
-        const textarea = el;
-        textarea.value = String(value);
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        return;
-    }
-    if (el.tagName.toLowerCase() === 'select') {
-        const select = el;
-        const val = String(value).toLowerCase();
-        for (const option of Array.from(select.options)) {
-            const optionText = option.textContent?.trim().toLowerCase() || '';
-            if (optionText === val || option.value.toLowerCase() === val) {
-                select.value = option.value;
-                select.dispatchEvent(new Event('change', { bubbles: true }));
-                break;
+        // Radios (Yes/No etc.)
+        if (element.type === 'radio') {
+            const name = element.name;
+            if (!name)
+                return;
+            const radios = Array.from(document.querySelectorAll(`input[type="radio"][name="${CSS.escape(name)}"]`));
+            // Start with direct value match
+            let toSelect = radios.find(r => r.value.trim().toLowerCase() === normalized) ?? null;
+            // Then try label text match
+            if (!toSelect) {
+                toSelect =
+                    radios.find(r => {
+                        const label = r.closest('label') ||
+                            document.querySelector(`label[for="${r.id}"]`);
+                        const labelText = label?.textContent?.toLowerCase() ?? '';
+                        return labelText.includes(normalized);
+                    }) ?? null;
             }
+            // Special-case yes/no, very common pattern
+            if (!toSelect && (normalized === 'yes' || normalized === 'no')) {
+                const findBy = (substr) => {
+                    const needle = substr.toLowerCase();
+                    return radios.find(r => {
+                        const label = r.closest('label') ||
+                            document.querySelector(`label[for="${r.id}"]`);
+                        const labelText = label?.textContent?.toLowerCase() ?? '';
+                        return (r.value.toLowerCase().includes(needle) ||
+                            labelText.includes(needle));
+                    });
+                };
+                const yesRadio = findBy('yes');
+                const noRadio = findBy('no');
+                let candidate;
+                if (normalized === 'yes') {
+                    candidate = yesRadio ?? radios[0];
+                }
+                else {
+                    candidate = noRadio ?? radios[radios.length - 1];
+                }
+                toSelect = candidate ?? null;
+            }
+            if (toSelect) {
+                if (!toSelect.checked) {
+                    // click so any JS click handlers run too
+                    toSelect.click();
+                }
+                triggerInputEvents(toSelect);
+            }
+            return;
         }
+    }
+    // 2) Native dropdowns (Gender, Race, Veteran status, etc.)
+    if (element instanceof HTMLSelectElement) {
+        const options = Array.from(element.options);
+        let match = options.find(o => o.text.trim().toLowerCase() === normalized ||
+            o.value.trim().toLowerCase() === normalized) ?? null;
+        // Soft matching for common phrasing
+        if (!match) {
+            const textIncludes = (substr) => options.find(o => o.text.toLowerCase().includes(substr.toLowerCase())) ?? null;
+            if (normalized.includes('not a veteran')) {
+                match = textIncludes('not a veteran');
+            }
+            else if (normalized.includes('male')) {
+                match = textIncludes('male');
+            }
+            else if (normalized.includes('female')) {
+                match = textIncludes('female');
+            }
+            // You can add more patterns once you see exact Race labels
+        }
+        if (match) {
+            element.value = match.value;
+            triggerInputEvents(element);
+        }
+        return;
+    }
+    // 3) Textareas
+    if (element instanceof HTMLTextAreaElement) {
+        element.focus();
+        element.value = trimmed;
+        triggerInputEvents(element);
     }
 }
-// --------- Log when the content script loads ---------
-console.log('[Heavylift] content script loaded on', window.location.href);
-// ---------- message handler ----------
+/**
+ * Message wiring.
+ * If your popup/background uses different message types,
+ * tweak the `message.type` strings below.
+ */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     console.log('[Heavylift] received message', message);
+    if (!message || typeof message !== 'object')
+        return;
+    // Ask the content script to scan fields
     if (message.type === 'SCAN_FIELDS') {
-        try {
-            const fields = scanFieldsInDocument();
-            console.log('[Heavylift] scanned fields:', fields.length);
-            const response = {
-                type: 'SCAN_FIELDS_RESULT',
-                fields,
-            };
-            sendResponse(response);
-        }
-        catch (e) {
-            console.error('[Heavylift] error scanning fields', e);
-            sendResponse({
-                type: 'SCAN_FIELDS_RESULT',
-                fields: [],
-            });
-        }
+        const fields = scanFields();
+        sendResponse({ fields });
         return true;
     }
-    if (message.type === 'FILL_FIELDS') {
-        try {
-            const fillReq = message;
-            for (const { fieldId, value } of fillReq.values) {
-                const selector = `[data-heavylift-id="${fieldId}"]`;
-                fillField(selector, value);
+    // Ask the content script to fill fields: { answers: { [id]: string } }
+    if (message.type === 'APPLY_ANSWERS' && message.answers) {
+        const answers = message.answers;
+        Object.entries(answers).forEach(([id, value]) => {
+            const el = fieldRegistry.get(id);
+            if (el) {
+                fillField(el, value);
             }
-            sendResponse({ ok: true });
-        }
-        catch (e) {
-            console.error('[Heavylift] error filling fields', e);
-            sendResponse({ ok: false });
-        }
+        });
+        sendResponse({ ok: true });
         return true;
     }
-    return false;
+    return;
 });
+// Make this a module so TS doesn't treat it as global script.
 //# sourceMappingURL=content.js.map

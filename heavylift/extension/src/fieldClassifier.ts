@@ -36,7 +36,7 @@ function findQuestionTextForGroup(radios: HTMLInputElement[]): string {
   if (!radios.length) return '';
 
   // Use the first radio as an anchor
-  let node: HTMLElement | null = radios[0];
+  let node = radios[0] as HTMLElement | null;
 
   for (let depth = 0; depth < 6 && node; depth++) {
     // 1) Text of the node itself
