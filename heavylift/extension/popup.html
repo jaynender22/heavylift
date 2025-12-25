@@ -1,149 +1,138 @@
-<!doctype html>
-<html>
+<!-- popup.html -->
+<!DOCTYPE html>
+<html lang="en">
   <head>
-    <meta charset="utf-8" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Heavylift</title>
+
     <style>
       body {
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-          sans-serif;
-        font-size: 13px;
+        font-family: Arial, sans-serif;
+        width: 360px;
         margin: 0;
-        padding: 0;
-        width: 440px;
-        color: #111827;
-        background: #f9fafb;
-      }
-
-      .wrapper {
-        padding: 12px 14px 14px;
-      }
-
-      h1 {
-        font-size: 16px;
-        margin: 0 0 8px;
+        padding: 12px;
       }
 
       h2 {
-        font-size: 13px;
-        margin: 10px 0 6px;
+        margin: 0 0 8px 0;
+        font-size: 16px;
+      }
+
+      h3 {
+        margin: 10px 0 6px 0;
+        font-size: 14px;
+      }
+
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .row > * {
+        flex: 1;
+      }
+
+      label {
+        font-size: 12px;
+        color: #333;
+      }
+
+      input,
+      select,
+      button {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        margin-top: 4px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        font-size: 12px;
       }
 
       button {
-        font-size: 12px;
-        padding: 4px 10px;
-        border-radius: 4px;
-        border: 1px solid #d1d5db;
-        background-color: #ffffff;
         cursor: pointer;
+        background: #f7f7f7;
       }
 
       button:hover {
-        background-color: #f3f4f6;
+        background: #efefef;
       }
 
       .top-actions {
         display: flex;
         gap: 8px;
-        margin-bottom: 10px;
-        flex-wrap: wrap;
       }
 
+      .top-actions button {
+        width: auto;
+        flex: 1;
+      }
+
+      #status {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #0b5;
+        min-height: 16px;
+      }
+
+      hr {
+        border: none;
+        border-top: 1px solid #ddd;
+        margin: 12px 0;
+      }
+
+      /* Tabs */
       .tabs {
         display: flex;
-        border-bottom: 1px solid #e5e7eb;
-        margin-bottom: 8px;
-        gap: 4px;
+        gap: 8px;
+        margin-top: 10px;
       }
 
-      .tab-btn {
+      .tabs button {
         flex: 1;
-        text-align: center;
-        padding: 4px 0;
-        font-size: 12px;
-        border-radius: 4px 4px 0 0;
-        border: 1px solid transparent;
-        border-bottom: none;
-        background: transparent;
-        cursor: pointer;
+        background: #f2f2f2;
       }
 
-      .tab-btn.active {
-        background: #ffffff;
-        border-color: #d1d5db;
-        border-bottom: 1px solid #ffffff;
-        font-weight: 500;
-      }
-
-      .tab-content {
-        background: #ffffff;
-        border: 1px solid #d1d5db;
-        border-radius: 0 4px 4px 4px;
-        padding: 8px 10px 10px;
+      .tabs button.active {
+        background: #dfefff;
+        border-color: #8bb6ff;
       }
 
       .tab-panel {
         display: none;
+        margin-top: 10px;
       }
 
       .tab-panel.active {
         display: block;
       }
 
-      .profile-grid {
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .grid-1 {
         display: grid;
         grid-template-columns: 1fr;
-        gap: 6px;
-        margin-bottom: 6px;
-      }
-
-      .profile-row {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      label {
-        font-size: 11px;
-        color: #4b5563;
-      }
-
-      input {
-        font-size: 12px;
-        padding: 4px 6px;
-        border-radius: 4px;
-        border: 1px solid #d1d5db;
-        background: #ffffff;
-      }
-
-      input:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 1px #bfdbfe;
-      }
-
-      .profile-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 6px;
-        margin-top: 6px;
-      }
-
-      .section {
-        border-top: 1px solid #e5e7eb;
-        padding-top: 8px;
-        margin-top: 8px;
+        gap: 8px;
       }
 
       #fieldList {
-        max-height: 220px;
-        overflow-y: auto;
-        padding-right: 4px;
+        margin-top: 10px;
+        max-height: 160px;
+        overflow: auto;
+        border: 1px solid #eee;
+        border-radius: 8px;
+        padding: 8px;
       }
 
       .field-item {
-        padding: 4px 2px;
-        border-bottom: 1px dashed #e5e7eb;
+        padding: 6px 0;
+        border-bottom: 1px solid #f0f0f0;
       }
 
       .field-item:last-child {
@@ -152,379 +141,320 @@
 
       .field-item .label {
         font-size: 12px;
-        font-weight: 500;
+        font-weight: 600;
       }
 
       .field-item .meta {
         font-size: 11px;
-        color: #6b7280;
+        color: #666;
+        margin-top: 2px;
       }
 
-      #status {
-        margin-top: 6px;
+      .small {
         font-size: 11px;
-        color: #374151;
-      }
-
-      .subheading {
-        font-size: 11px;
-        font-weight: 600;
-        margin: 4px 0 2px;
-        color: #6b7280;
-      }
-
-      .muted-note {
-        font-size: 10px;
-        color: #6b7280;
-        margin-top: 4px;
+        color: #555;
       }
     </style>
   </head>
+
   <body>
-    <div class="wrapper">
-      <h1>Heavylift</h1>
+    <h2>Heavylift</h2>
 
-      <div class="top-actions">
-        <button id="scanBtn">Scan fields</button>
-        <button id="testFillBtn">Test fill with "demo"</button>
-        <button id="fillProfileBtn">Fill from saved info</button>
-      </div>
-
-      <!-- Tabs for Profile vs Preferences -->
-      <div class="tabs">
-        <button
-          class="tab-btn active"
-          data-tab="profile"
-          id="tabProfileBtn"
-          type="button"
-        >
-          Profile
-        </button>
-        <button
-          class="tab-btn"
-          data-tab="preferences"
-          id="tabPrefsBtn"
-          type="button"
-        >
-          Preferences
-        </button>
-      </div>
-
-      <div class="tab-content">
-        <!-- PROFILE TAB -->
-        <div class="tab-panel active" id="tab-profile">
-          <h2>Basic info</h2>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="profileFirstName">First name</label>
-              <input id="profileFirstName" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileMiddleName">Middle name (optional)</label>
-              <input id="profileMiddleName" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileLastName">Last name</label>
-              <input id="profileLastName" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profilePreferredName">Preferred name (optional)</label>
-              <input id="profilePreferredName" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileFullName">Full name (optional)</label>
-              <input id="profileFullName" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileEmail">Email</label>
-              <input id="profileEmail" type="email" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profilePhoneMobile">Mobile phone</label>
-              <input id="profilePhoneMobile" type="tel" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profilePhoneHome">Home phone (optional)</label>
-              <input id="profilePhoneHome" type="tel" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profilePhoneWork">Work phone (optional)</label>
-              <input id="profilePhoneWork" type="tel" />
-            </div>
-          </div>
-
-          <div class="subheading">Location</div>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="profileCity">City</label>
-              <input id="profileCity" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileState">State / Province</label>
-              <input id="profileState" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileCountry">Country</label>
-              <input id="profileCountry" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profilePostalCode">Postal code</label>
-              <input id="profilePostalCode" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileLocationCombined">
-                Current location (combined)
-              </label>
-              <input id="profileLocationCombined" type="text" />
-            </div>
-          </div>
-
-          <div class="subheading">Links</div>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="profileLinkedIn">LinkedIn URL</label>
-              <input id="profileLinkedIn" type="url" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileGithub">GitHub URL</label>
-              <input id="profileGithub" type="url" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profilePortfolio">Portfolio / website</label>
-              <input id="profilePortfolio" type="url" />
-            </div>
-          </div>
-
-          <div class="subheading">Current role (optional)</div>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="profileCurrentCompany">Current company</label>
-              <input id="profileCurrentCompany" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileCurrentTitle">Current title</label>
-              <input id="profileCurrentTitle" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileYearsTotal">Total years experience</label>
-              <input id="profileYearsTotal" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileYearsRelevant">Relevant years experience</label>
-              <input id="profileYearsRelevant" type="text" />
-            </div>
-          </div>
-
-          <div class="subheading">Education (optional)</div>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="profileEducationLevel">Highest education level</label>
-              <input id="profileEducationLevel" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileFieldOfStudy">Field of study</label>
-              <input id="profileFieldOfStudy" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileInstitutionName">Institution name</label>
-              <input id="profileInstitutionName" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileGraduationYear">Graduation year</label>
-              <input id="profileGraduationYear" type="text" />
-            </div>
-          </div>
-
-          <div class="subheading">
-            Sensitive (stored here, never autofilled)
-          </div>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="profileDateOfBirth">Date of birth</label>
-              <input id="profileDateOfBirth" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileRaceEthnicity">Race / Ethnicity</label>
-              <input id="profileRaceEthnicity" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileGender">Gender</label>
-              <input id="profileGender" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileDisabilityStatus">Disability status</label>
-              <input id="profileDisabilityStatus" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileVeteranStatus">Veteran status</label>
-              <input id="profileVeteranStatus" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileSexualOrientation">Sexual orientation</label>
-              <input id="profileSexualOrientation" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="profileCriminalHistory">Criminal history</label>
-              <input id="profileCriminalHistory" type="text" />
-            </div>
-          </div>
-
-          <p class="muted-note">
-            These sensitive details are for your own reference. Heavylift will
-            never autofill them into applications.
-          </p>
-
-          <div class="profile-actions">
-            <button id="saveProfileBtn" type="button">Save profile</button>
-          </div>
-        </div>
-
-        <!-- PREFERENCES TAB -->
-        <div class="tab-panel" id="tab-preferences">
-          <h2>Job preferences</h2>
-
-          <div class="subheading">Work authorization</div>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="prefWorkAuthCountry">Primary work auth country</label>
-              <input id="prefWorkAuthCountry" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefWorkAuthUS">
-                Authorized to work in US? (yes/no)
-              </label>
-              <input id="prefWorkAuthUS" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefNeedSponsorship">
-                Need sponsorship now or in future? (yes/no)
-              </label>
-              <input id="prefNeedSponsorship" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefEligibleCountry">
-                Eligible to work in other country? (free text)
-              </label>
-              <input id="prefEligibleCountry" type="text" />
-            </div>
-          </div>
-
-          <div class="subheading">Location & work style</div>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="prefPreferredLocation">
-                Preferred locations (free text)
-              </label>
-              <input id="prefPreferredLocation" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefRelocate">
-                Willing to relocate? (yes/no/maybe)
-              </label>
-              <input id="prefRelocate" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefOnSiteOk">
-                Okay with on-site? (yes/no)
-              </label>
-              <input id="prefOnSiteOk" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefHybridOk">
-                Okay with hybrid? (yes/no)
-              </label>
-              <input id="prefHybridOk" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefTravelMax">
-                Max travel % (e.g. 25)
-              </label>
-              <input id="prefTravelMax" type="text" />
-            </div>
-          </div>
-
-          <div class="subheading">Timing & compensation</div>
-          <div class="profile-grid">
-            <div class="profile-row">
-              <label for="prefNoticePeriod">Notice period</label>
-              <input id="prefNoticePeriod" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefEarliestStart">Earliest start date</label>
-              <input id="prefEarliestStart" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefSalaryExpectations">
-                Salary expectations (range / currency)
-              </label>
-              <input id="prefSalaryExpectations" type="text" />
-            </div>
-
-            <div class="profile-row">
-              <label for="prefHourlyRate">Hourly rate (if contract)</label>
-              <input id="prefHourlyRate" type="text" />
-            </div>
-          </div>
-
-          <div class="profile-actions">
-            <button id="savePreferencesBtn" type="button">
-              Save preferences
-            </button>
-          </div>
-
-          <p class="muted-note">
-            Extremely sensitive IDs like SSN, passport number, and driver's
-            license are never stored or autofilled.
-          </p>
-        </div>
-      </div>
-
-      <div class="section">
-        <h2>Detected fields on this page</h2>
-        <div id="fieldList">
-          <p>Click "Scan fields" to analyze the current page.</p>
-        </div>
-      </div>
-
-      <div id="status"></div>
+    <!-- Top actions -->
+    <div class="top-actions">
+      <button id="scanBtn">Scan</button>
+      <button id="testFillBtn">Test Fill</button>
+      <button id="fillProfileBtn">Fill from Saved</button>
     </div>
 
-    <!-- Built JS from TypeScript (tsc outputs to dist/) -->
-    <script src="dist/popup.js" defer></script>
+    <div id="status"></div>
+
+    <div id="fieldList">
+      <p class="small">Click Scan to detect fields on the current page.</p>
+    </div>
+
+    <hr />
+
+    <!-- Backend storage section -->
+    <h3>Backend Storage</h3>
+
+    <div class="grid-1">
+      <div>
+        <label>Profile name</label>
+        <div class="row">
+          <input id="profileNameInput" type="text" placeholder="e.g., Default / Workday" />
+          <button id="createProfileBtn" style="max-width: 110px">Create</button>
+        </div>
+      </div>
+
+      <div>
+        <label>Saved profiles</label>
+        <select id="profilesSelect"></select>
+      </div>
+
+      <div>
+        <label>Saved versions</label>
+        <select id="versionsSelect"></select>
+      </div>
+
+      <div class="row">
+        <button id="saveVersionBtn">Save version</button>
+        <button id="loadVersionBtn">Load version</button>
+      </div>
+
+      <div>
+        <label>Resume upload</label>
+        <div class="row">
+          <input id="resumeFileInput" type="file" />
+          <button id="uploadResumeBtn" style="max-width: 110px">Upload</button>
+        </div>
+        <div id="resumeStatus" class="small" style="margin-top: 6px"></div>
+      </div>
+    </div>
+
+    <hr />
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button id="tabProfileBtn" class="active">Profile</button>
+      <button id="tabPrefsBtn">Preferences</button>
+    </div>
+
+    <!-- Profile tab -->
+    <div id="tab-profile" class="tab-panel active">
+      <h3>Profile</h3>
+
+      <div class="grid">
+        <div>
+          <label>First name</label>
+          <input id="profileFirstName" type="text" />
+        </div>
+        <div>
+          <label>Middle name</label>
+          <input id="profileMiddleName" type="text" />
+        </div>
+
+        <div>
+          <label>Last name</label>
+          <input id="profileLastName" type="text" />
+        </div>
+        <div>
+          <label>Preferred name</label>
+          <input id="profilePreferredName" type="text" />
+        </div>
+
+        <div style="grid-column: 1 / -1">
+          <label>Full name</label>
+          <input id="profileFullName" type="text" />
+        </div>
+
+        <div>
+          <label>Email</label>
+          <input id="profileEmail" type="email" />
+        </div>
+        <div>
+          <label>Mobile phone</label>
+          <input id="profilePhoneMobile" type="tel" />
+        </div>
+
+        <div>
+          <label>Home phone</label>
+          <input id="profilePhoneHome" type="tel" />
+        </div>
+        <div>
+          <label>Work phone</label>
+          <input id="profilePhoneWork" type="tel" />
+        </div>
+
+        <div>
+          <label>City</label>
+          <input id="profileCity" type="text" />
+        </div>
+        <div>
+          <label>State</label>
+          <input id="profileState" type="text" />
+        </div>
+
+        <div>
+          <label>Country</label>
+          <input id="profileCountry" type="text" />
+        </div>
+        <div>
+          <label>Postal code</label>
+          <input id="profilePostalCode" type="text" />
+        </div>
+
+        <div style="grid-column: 1 / -1">
+          <label>Location (combined)</label>
+          <input id="profileLocationCombined" type="text" />
+        </div>
+
+        <div>
+          <label>LinkedIn</label>
+          <input id="profileLinkedIn" type="url" />
+        </div>
+        <div>
+          <label>GitHub</label>
+          <input id="profileGithub" type="url" />
+        </div>
+
+        <div style="grid-column: 1 / -1">
+          <label>Portfolio</label>
+          <input id="profilePortfolio" type="url" />
+        </div>
+
+        <div>
+          <label>Current company</label>
+          <input id="profileCurrentCompany" type="text" />
+        </div>
+        <div>
+          <label>Current title</label>
+          <input id="profileCurrentTitle" type="text" />
+        </div>
+
+        <div>
+          <label>Years total</label>
+          <input id="profileYearsTotal" type="text" />
+        </div>
+        <div>
+          <label>Years relevant</label>
+          <input id="profileYearsRelevant" type="text" />
+        </div>
+
+        <div>
+          <label>Education level</label>
+          <input id="profileEducationLevel" type="text" />
+        </div>
+        <div>
+          <label>Field of study</label>
+          <input id="profileFieldOfStudy" type="text" />
+        </div>
+
+        <div>
+          <label>Institution</label>
+          <input id="profileInstitutionName" type="text" />
+        </div>
+        <div>
+          <label>Graduation year</label>
+          <input id="profileGraduationYear" type="text" />
+        </div>
+
+        <div style="grid-column: 1 / -1">
+          <h3>Demographics (optional)</h3>
+          <div class="small">
+            Only fill these if you actually want them stored and auto-filled.
+          </div>
+        </div>
+
+        <div>
+          <label>Date of birth</label>
+          <input id="profileDateOfBirth" type="text" placeholder="YYYY-MM-DD" />
+        </div>
+        <div>
+          <label>Race / Ethnicity</label>
+          <input id="profileRaceEthnicity" type="text" />
+        </div>
+
+        <div>
+          <label>Gender</label>
+          <input id="profileGender" type="text" />
+        </div>
+        <div>
+          <label>Disability status</label>
+          <input id="profileDisabilityStatus" type="text" />
+        </div>
+
+        <div>
+          <label>Veteran status</label>
+          <input id="profileVeteranStatus" type="text" />
+        </div>
+        <div>
+          <label>Sexual orientation</label>
+          <input id="profileSexualOrientation" type="text" />
+        </div>
+
+        <div style="grid-column: 1 / -1">
+          <label>Criminal history</label>
+          <input id="profileCriminalHistory" type="text" />
+        </div>
+
+        <div class="row" style="grid-column: 1 / -1">
+          <button id="saveProfileBtn">Save Profile (local)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preferences tab -->
+    <div id="tab-preferences" class="tab-panel">
+      <h3>Preferences</h3>
+
+      <div class="grid">
+        <div>
+          <label>Work auth country</label>
+          <input id="prefWorkAuthCountry" type="text" />
+        </div>
+        <div>
+          <label>Work auth US</label>
+          <input id="prefWorkAuthUS" type="text" />
+        </div>
+
+        <div>
+          <label>Need sponsorship (future)</label>
+          <input id="prefNeedSponsorship" type="text" />
+        </div>
+        <div>
+          <label>Eligible to work in country X</label>
+          <input id="prefEligibleCountry" type="text" />
+        </div>
+
+        <div>
+          <label>Preferred location</label>
+          <input id="prefPreferredLocation" type="text" />
+        </div>
+        <div>
+          <label>Willing to relocate</label>
+          <input id="prefRelocate" type="text" />
+        </div>
+
+        <div>
+          <label>On-site OK</label>
+          <input id="prefOnSiteOk" type="text" />
+        </div>
+        <div>
+          <label>Hybrid OK</label>
+          <input id="prefHybridOk" type="text" />
+        </div>
+
+        <div>
+          <label>Max travel %</label>
+          <input id="prefTravelMax" type="text" />
+        </div>
+        <div>
+          <label>Notice period</label>
+          <input id="prefNoticePeriod" type="text" />
+        </div>
+
+        <div>
+          <label>Earliest start date</label>
+          <input id="prefEarliestStart" type="text" />
+        </div>
+        <div>
+          <label>Salary expectations</label>
+          <input id="prefSalaryExpectations" type="text" />
+        </div>
+
+        <div style="grid-column: 1 / -1">
+          <label>Hourly rate expectations</label>
+          <input id="prefHourlyRate" type="text" />
+        </div>
+
+        <div class="row" style="grid-column: 1 / -1">
+          <button id="savePreferencesBtn">Save Preferences (local)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- IMPORTANT: point to your compiled popup script -->
+    <script src="dist/popup.js"></script>
   </body>
 </html>

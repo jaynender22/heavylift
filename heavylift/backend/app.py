@@ -21,6 +21,15 @@ from models import (
 from schema import CANONICAL_FIELDS
 from embeddings import classify_field_texts
 from reporting import append_scan_report  # you created this in backend/reporting.py
+from fastapi import UploadFile, File, Depends, HTTPException
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import select, desc
+import hashlib
+from pathlib import Path
+
+from db import engine, DATA_DIR, get_db
+from db_models import Base, Resume, Profile, ProfileVersion
 
 
 app = FastAPI()
@@ -30,6 +39,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
+    allow_credentials=True,
     allow_headers=["*"],
 )
 
@@ -372,3 +382,97 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
         report=report,
     )
 
+@app.on_event("startup")
+def init_db():
+    Base.metadata.create_all(bind=engine)
+
+def _sha256_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+@app.post("/resumes")
+async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    sha = _sha256_bytes(content)
+    ext = Path(file.filename or "resume").suffix or ".bin"
+
+    resumes_dir = DATA_DIR / "resumes"
+    resumes_dir.mkdir(parents=True, exist_ok=True)
+
+    stored_path = resumes_dir / f"{sha}{ext}"
+    if not stored_path.exists():
+        stored_path.write_bytes(content)
+
+    r = Resume(original_filename=file.filename or "resume", stored_path=str(stored_path), sha256=sha)
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return {"id": r.id, "filename": r.original_filename, "sha256": r.sha256, "created_at": r.created_at}
+
+@app.get("/resumes")
+def list_resumes(db: Session = Depends(get_db)):
+    rows = db.execute(select(Resume).order_by(desc(Resume.created_at))).scalars().all()
+    return [{"id": r.id, "filename": r.original_filename, "sha256": r.sha256, "created_at": r.created_at} for r in rows]
+
+@app.get("/resumes/{resume_id}/download")
+def download_resume(resume_id: int, db: Session = Depends(get_db)):
+    r = db.get(Resume, resume_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    return FileResponse(path=r.stored_path, filename=r.original_filename)
+
+@app.post("/profiles")
+def create_profile(payload: dict, db: Session = Depends(get_db)):
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Profile name required")
+    p = Profile(name=name)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return {"id": p.id, "name": p.name, "created_at": p.created_at}
+
+@app.get("/profiles")
+def list_profiles(db: Session = Depends(get_db)):
+    rows = db.execute(select(Profile).order_by(desc(Profile.created_at))).scalars().all()
+    return [{"id": p.id, "name": p.name, "created_at": p.created_at} for p in rows]
+
+@app.post("/profiles/{profile_id}/versions")
+def save_profile_version(profile_id: int, payload: dict, db: Session = Depends(get_db)):
+    p = db.get(Profile, profile_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="payload.data must be a JSON object")
+
+    resume_id = payload.get("resume_id")
+    if resume_id is not None and db.get(Resume, resume_id) is None:
+        raise HTTPException(status_code=400, detail="resume_id not found")
+
+    v = ProfileVersion(profile_id=profile_id, resume_id=resume_id, data=data)
+    db.add(v)
+    db.commit()
+    db.refresh(v)
+    return {"id": v.id, "profile_id": v.profile_id, "resume_id": v.resume_id, "created_at": v.created_at}
+
+@app.get("/profiles/{profile_id}/versions")
+def list_profile_versions(profile_id: int, db: Session = Depends(get_db)):
+    if db.get(Profile, profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    rows = db.execute(
+        select(ProfileVersion)
+        .where(ProfileVersion.profile_id == profile_id)
+        .order_by(desc(ProfileVersion.created_at))
+    ).scalars().all()
+    return [{"id": v.id, "resume_id": v.resume_id, "created_at": v.created_at} for v in rows]
+
+@app.get("/profiles/{profile_id}/versions/{version_id}")
+def get_profile_version(profile_id: int, version_id: int, db: Session = Depends(get_db)):
+    v = db.get(ProfileVersion, version_id)
+    if not v or v.profile_id != profile_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return {"id": v.id, "profile_id": v.profile_id, "resume_id": v.resume_id, "created_at": v.created_at, "data": v.data}
