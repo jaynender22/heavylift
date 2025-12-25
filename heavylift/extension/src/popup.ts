@@ -1,6 +1,7 @@
 // src/popup.ts
 
 // ---------- Types ----------
+(() => {
 
 type PopupFieldType =
   | "text"
@@ -925,3 +926,5 @@ loadPreferences().then((prefs) => {
   populatePreferencesInputs(prefs);
 });
 scanPageFields();
+
+})();

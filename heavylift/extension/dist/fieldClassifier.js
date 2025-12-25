@@ -1,4 +1,8 @@
+"use strict";
 // src/fieldClassifier.ts
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.scanFieldsInDocument = scanFieldsInDocument;
+exports.fillField = fillField;
 let nextId = 1;
 function inferFieldType(el) {
     const tag = el.tagName.toLowerCase();
@@ -110,7 +114,7 @@ function findLabelText(element) {
     }
     return '';
 }
-export function scanFieldsInDocument() {
+function scanFieldsInDocument() {
     const fields = [];
     const selectors = ['input', 'textarea', 'select'];
     const elements = Array.from(document.querySelectorAll(selectors.join(',')));
@@ -196,7 +200,7 @@ export function scanFieldsInDocument() {
     }
     return fields;
 }
-export function fillField(selector, value) {
+function fillField(selector, value) {
     const el = document.querySelector(selector);
     if (!el)
         return;
