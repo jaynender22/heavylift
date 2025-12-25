@@ -1,0 +1,39 @@
+# -------------------------
+# OS / Editor junk
+# -------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# -------------------------
+# Python caches
+# -------------------------
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+
+# -------------------------
+# Python virtual environment (SENSITIVE + huge)
+# Your venv is inside: heavylift/backend/.venv
+# -------------------------
+heavylift/backend/.venv/
+
+# -------------------------
+# Backend data (SENSITIVE: DB + resumes + reports)
+# Your data folder is: heavylift/backend/data
+# -------------------------
+heavylift/backend/data/
+# (optional extra safety in case you move files later)
+**/*.sqlite3
+**/*.db
+**/*.jsonl
+**/*.pdf
+
+# -------------------------
+# Node / Extension build artifacts
+# -------------------------
+heavylift/extension/node_modules/
+heavylift/extension/dist/
+**/*.log
