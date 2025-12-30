@@ -111,6 +111,36 @@
     results: ClassifiedField[];
   }
 
+  interface GenerateAnswersRequest {
+  job_info?: { url?: string | null } | null;
+  profile?: any | null;
+  preferences?: any | null;
+  resume_id?: number | null;
+  fields: {
+    id: string;
+    label?: string;
+    name?: string;
+    placeholder?: string;
+    tag?: string;
+    html_type?: string;
+    options?: string[] | null;
+  }[];
+}
+
+interface GenerateAnswer {
+  field_id: string;
+  value: string | null;
+  autofill: boolean;
+  confidence: number;
+  source_type: string;
+  source_ref?: string | null;
+}
+
+interface GenerateAnswersResponse {
+  suggestions: GenerateAnswer[];
+}
+
+
   // ---------- Constants ----------
   const PROFILE_KEY = "heavylift_profile";
   const PREFERENCES_KEY = "heavylift_preferences";
@@ -492,6 +522,16 @@
     return res.json();
   }
 
+  async function generateAnswers(payload: GenerateAnswersRequest): Promise<GenerateAnswersResponse> {
+  const res = await fetch(`${API_BASE}/generate-answers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
   // ---------- Snapshot helpers (what gets versioned) ----------
   function getCurrentProfileSnapshot(): Record<string, any> {
     // store BOTH profile + prefs so loading brings you back to the same state
@@ -690,207 +730,62 @@
       return;
     }
 
+    // Ensure we have fields scanned
     if (!currentFields.length) {
       await scanPageFields();
     }
 
-    if (!currentClassifications.length) {
-      await classifyCurrentFields();
-    }
-
-    if (!currentClassifications.length) {
-      setStatus("Could not classify fields for autofill.");
+    if (!currentFields.length) {
+      setStatus("No fillable fields found on this page.");
       return;
     }
 
-    const values: PopupFillFieldsRequest["values"] = [];
+    // Build backend fields from currentFields
+    const backendFields = currentFields.map((f) => ({
+      id: f.id,
+      label: f.label || "",
+      name: f.name || "",
+      placeholder: f.placeholder || "",
+      tag: (f.tagName || "").toLowerCase(),
+      html_type: f.htmlType || "",
+      options: f.options || null,
+    }));
 
-    for (const info of currentFields) {
-      const cls = currentClassifications.find((c) => c.field_id === info.id && c.autofill_allowed);
-      if (!cls) continue;
-
-      let value: string | null = null;
-
-      if (cls.source.startsWith("profile.")) {
-        switch (cls.source) {
-          case "profile.firstName":
-            value = profile?.firstName || null;
-            break;
-          case "profile.middleName":
-            value = profile?.middleName || null;
-            break;
-          case "profile.lastName":
-            value = profile?.lastName || null;
-            break;
-          case "profile.preferredName":
-            value = profile?.preferredName || null;
-            break;
-          case "profile.fullName":
-            value =
-              profile?.fullName ||
-              [profile?.firstName, profile?.middleName, profile?.lastName].filter(Boolean).join(" ");
-            break;
-          case "profile.email":
-            value = profile?.email || null;
-            break;
-          case "profile.phoneMobile":
-            value = profile?.phoneMobile || null;
-            break;
-          case "profile.phoneHome":
-            value = profile?.phoneHome || null;
-            break;
-          case "profile.phoneWork":
-            value = profile?.phoneWork || null;
-            break;
-          case "profile.city":
-            value = profile?.city || null;
-            break;
-          case "profile.state":
-            value = profile?.state || null;
-            break;
-          case "profile.country":
-            value = profile?.country || null;
-            break;
-          case "profile.postalCode":
-            value = profile?.postalCode || null;
-            break;
-          case "profile.locationCombined":
-            value =
-              profile?.locationCombined ||
-              [profile?.city, profile?.state, profile?.country].filter(Boolean).join(", ");
-            break;
-          case "profile.linkedIn":
-            value = profile?.linkedIn || null;
-            break;
-          case "profile.github":
-            value = profile?.github || null;
-            break;
-          case "profile.portfolio":
-            value = profile?.portfolio || null;
-            break;
-          case "profile.currentCompany":
-            value = profile?.currentCompany || null;
-            break;
-          case "profile.currentTitle":
-            value = profile?.currentTitle || null;
-            break;
-          case "profile.yearsTotal":
-            value = profile?.yearsTotal || null;
-            break;
-          case "profile.yearsRelevant":
-            value = profile?.yearsRelevant || null;
-            break;
-          case "profile.educationLevel":
-            value = profile?.educationLevel || null;
-            break;
-          case "profile.fieldOfStudy":
-            value = profile?.fieldOfStudy || null;
-            break;
-          case "profile.institutionName":
-            value = profile?.institutionName || null;
-            break;
-          case "profile.graduationYear":
-            value = profile?.graduationYear || null;
-            break;
-
-          // Demographic fields
-          case "profile.dateOfBirth":
-            value = profile?.dateOfBirth || null;
-            break;
-          case "profile.raceEthnicity":
-            value = profile?.raceEthnicity || null;
-            break;
-          case "profile.gender":
-            value = profile?.gender || null;
-            break;
-          case "profile.disabilityStatus":
-            value = profile?.disabilityStatus || null;
-            break;
-          case "profile.veteranStatus":
-            value = profile?.veteranStatus || null;
-            break;
-          case "profile.sexualOrientation":
-            value = profile?.sexualOrientation || null;
-            break;
-          case "profile.criminalHistory":
-            value = profile?.criminalHistory || null;
-            break;
-
-          default:
-            value = null;
-        }
-      } else if (cls.source.startsWith("preferences.") && prefs) {
-        switch (cls.source) {
-          case "preferences.workAuthCountry":
-            value = prefs.workAuthCountry || null;
-            break;
-          case "preferences.workAuthUS":
-            value = prefs.workAuthUS || null;
-            break;
-          case "preferences.needSponsorshipFuture":
-            value = prefs.needSponsorshipFuture || null;
-            break;
-          case "preferences.eligibleToWorkInCountryX":
-            value = prefs.eligibleToWorkInCountryX || null;
-            break;
-          case "preferences.preferredLocation":
-            value = prefs.preferredLocation || null;
-            break;
-          case "preferences.willingToRelocate":
-            value = prefs.willingToRelocate || null;
-            break;
-          case "preferences.onSiteOk":
-            value = prefs.onSiteOk || null;
-            break;
-          case "preferences.hybridOk":
-            value = prefs.hybridOk || null;
-            break;
-          case "preferences.travelPercentMax":
-            value = prefs.travelPercentMax || null;
-            break;
-          case "preferences.noticePeriod":
-            value = prefs.noticePeriod || null;
-            break;
-          case "preferences.earliestStartDate":
-            value = prefs.earliestStartDate || null;
-            break;
-          case "preferences.salaryExpectations":
-            value = prefs.salaryExpectations || null;
-            break;
-          case "preferences.hourlyRateExpectations":
-            value = prefs.hourlyRateExpectations || null;
-            break;
-          default:
-            value = null;
-        }
-      }
-
-      if (!value) continue;
-      if (info.htmlType === "file") continue;
-
-      const allowedTypes: PopupFieldType[] = ["text", "textarea", "email", "tel", "url", "number", "select", "radio"];
-      if (!allowedTypes.includes(info.fieldType)) continue;
-
-      values.push({ fieldId: info.id, value });
-    }
-
-    if (!values.length) {
-      setStatus("No fields on this page matched your saved info.");
-      return;
-    }
+    setStatus("Generating answers (backend + RAG + Gemini)…");
 
     try {
       const tab = await getActiveTab();
+      const url = tab.url || null;
+
+      // Call backend /generate-answers
+      const resp = await generateAnswers({
+        job_info: { url },
+        profile: profile || null,
+        preferences: prefs || null,
+        resume_id: currentResumeId || null, // make sure currentResumeId exists in your popup.ts state
+        fields: backendFields,
+      });
+
+      const values: PopupFillFieldsRequest["values"] = resp.suggestions
+        .filter((s) => s.autofill && s.value)
+        .map((s) => ({ fieldId: s.field_id, value: s.value! }));
+
+      if (!values.length) {
+        setStatus("No high-confidence fields to autofill (safe mode).");
+        return;
+      }
+
+      // Send fill instructions to content script
       const req: PopupFillFieldsRequest = { type: "FILL_FIELDS", values };
 
-      chrome.tabs.sendMessage(tab.id!, req, (resp) => {
+      chrome.tabs.sendMessage(tab.id!, req, (resp2) => {
         const err = chrome.runtime.lastError;
         if (err) {
           console.error("[Heavylift popup] sendMessage error (profile fill):", err);
           setStatus(`Error filling from saved info: ${err.message}`);
           return;
         }
-        console.log("[Heavylift popup] fill response:", resp);
+        console.log("[Heavylift popup] fill response:", resp2);
         setStatus(`Filled ${values.length} field(s) from saved info.`);
       });
     } catch (err) {
@@ -898,6 +793,7 @@
       setStatus("Error filling from saved info.");
     }
   }
+
 
   // ---------- Backend storage wiring ----------
 async function refreshProfilesAndVersions(selectProfileId?: number) {

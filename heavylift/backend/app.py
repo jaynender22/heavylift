@@ -30,6 +30,20 @@ from pathlib import Path
 
 from db import engine, DATA_DIR, get_db
 from db_models import Base, Resume, Profile, ProfileVersion
+from resume_index import build_index_for_resume
+from rag_config import (
+    MIN_CONFIDENCE_TO_AUTOFILL,
+    MIN_CONFIDENCE_TO_RETURN_VALUE,
+    CANONICAL_CONFIDENCE_STRONG,
+    MAX_FACTS_TO_SEND,
+    MAX_CHUNKS_TO_SEND,
+)
+from profile_facts import build_facts
+from fact_retrieval import retrieve_top_facts
+from resume_index import search_resume
+from gemini_decider import decide_value
+from reporting import append_rag_trace
+
 
 
 app = FastAPI()
@@ -303,84 +317,154 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
     # 1) Classification (reuse core logic)
     classified = classify_fields_core(fields)
 
-    field_suggestions: List[FieldSuggestion] = []
+    suggestions: List[FieldAnswer] = []
+
+    # Build facts once per request
+    facts_all = build_facts(profile, preferences)
 
     for cf in classified:
-        # Find original field metadata
         field = next((f for f in fields if f.id == cf.field_id), None)
         if not field:
             continue
 
-        suggested_value: Optional[str] = None
-        source_label = "none"
-        confidence = cf.confidence
-        reason = ""
-
+        # Respect schema autofill_allowed
         if not cf.autofill_allowed:
-            # Sensitive or unknown source -> we don't autofill
-            reason = "Autofill not allowed (sensitive or no source mapping)"
-        else:
-            # Example simple mapping: cf.source like "profile.firstName"
-            # or "preferences.workAuthUS"
+            suggestions.append(
+                FieldAnswer(
+                    field_id=cf.field_id,
+                    value=None,
+                    autofill=False,
+                    confidence=cf.confidence,
+                    source_type="unknown",
+                    source_ref=None,
+                )
+            )
+            continue
+
+        # 1) Fast path: canonical mapping when confidence strong
+        suggested_value: Optional[str] = None
+        source_type = "unknown"
+        source_ref: Optional[str] = None
+        confidence = float(cf.confidence)
+
+        if cf.canonical_key != "UNKNOWN" and cf.source and confidence >= CANONICAL_CONFIDENCE_STRONG:
             if cf.source.startswith("profile."):
                 key = cf.source.split(".", 1)[1]
-                raw = profile.get(key)
+                raw = (profile or {}).get(key)
                 if isinstance(raw, str) and raw.strip():
                     suggested_value = raw.strip()
-                    source_label = "profile"
-                    reason = f"Filled from profile.{key}"
-                else:
-                    reason = f"No value found in profile for key '{key}'"
+                    source_type = "profile"
+                    source_ref = f"profile.{key}"
+
             elif cf.source.startswith("preferences."):
                 key = cf.source.split(".", 1)[1]
-                raw = preferences.get(key)
+                raw = (preferences or {}).get(key)
                 if isinstance(raw, str) and raw.strip():
-                    # For yes/no or coded values we’ll improve this logic later
                     suggested_value = raw.strip()
-                    source_label = "preferences"
-                    reason = f"Filled from preferences.{key}"
-                else:
-                    reason = f"No value found in preferences for key '{key}'"
-            else:
-                reason = "No matching profile/preference source"
+                    source_type = "preferences"
+                    source_ref = f"preferences.{key}"
 
-        fs = FieldSuggestion(
-            field_id=cf.field_id,
-            suggested_value=suggested_value,
-            canonical_key=cf.canonical_key,
-            source=source_label,
-            confidence=confidence,
-            reason=reason,
+        # If we found a strong canonical value, autofill immediately
+        if suggested_value is not None:
+            suggestions.append(
+                FieldAnswer(
+                    field_id=cf.field_id,
+                    value=suggested_value,
+                    autofill=True,
+                    confidence=confidence,
+                    source_type=source_type,
+                    source_ref=source_ref,
+                )
+            )
+            continue
+
+        # 2) Hard path: RAG + Gemini
+        # Build a query string from field metadata
+        field_question = " ".join(
+            [
+                (field.label or "").strip(),
+                (field.placeholder or "").strip(),
+                (field.name or "").strip(),
+                ("Options: " + ", ".join(field.options or [])) if field.options else "",
+            ]
+        ).strip()
+
+        # Retrieve evidence locally
+        top_facts = retrieve_top_facts(field_question, facts_all, top_k=MAX_FACTS_TO_SEND)
+
+        top_chunks = []
+        if payload.resume_id:
+            try:
+                top_chunks = search_resume(db, payload.resume_id, field_question, top_k=MAX_CHUNKS_TO_SEND)
+            except Exception as e:
+                print("[resume search] failed:", e)
+                top_chunks = []
+
+        # Ask Gemini to choose the best value from evidence
+        decision = decide_value(
+            field_question=field_question,
+            field_type=field.html_type or field.tag or "text",
+            options=field.options or [],
+            candidate_facts=top_facts,
+            candidate_chunks=top_chunks,
         )
-        field_suggestions.append(fs)
 
-    # 2) TODO (future): Gemini/ML second pass
+        # Log evidence + decision in backend only
+        append_rag_trace(
+            {
+                "field_id": cf.field_id,
+                "canonical_key": cf.canonical_key,
+                "canonical_source": cf.source,
+                "canonical_confidence": cf.confidence,
+                "field_question": field_question,
+                "top_facts": top_facts,
+                "top_chunks": [{"chunk_id": c["chunk_id"], "score": c["score"]} for c in top_chunks],
+                "gemini_decision": decision.model_dump(),
+            }
+        )
 
-    # 3) Build minimal suggestions list for the extension
-    suggestions: List[FieldAnswer] = [
-        FieldAnswer(field_id=fs.field_id, value=fs.suggested_value)
-        for fs in field_suggestions
-        if fs.suggested_value is not None
-    ]
+        # Safe mode thresholds: you requested 0.55–0.60 returns NULL (for now)
+        if decision.confidence < MIN_CONFIDENCE_TO_RETURN_VALUE:
+            suggestions.append(
+                FieldAnswer(
+                    field_id=cf.field_id,
+                    value=None,
+                    autofill=False,
+                    confidence=float(decision.confidence),
+                    source_type="unknown",
+                    source_ref=None,
+                )
+            )
+            continue
 
-    # 4) Build ScanReport object
-    job_info = payload.job_info
-    report = ScanReport(
-        job_url=job_info.url if job_info else None,
-        company=job_info.company if job_info else None,
-        role=job_info.role if job_info else None,
-        timestamp=time.time(),
-        fields=field_suggestions,
-    )
+        # If we ever allow "return but not autofill" later, that’s where it would go.
+        # For now (your choice): return null unless we can autofill.
+        if decision.confidence < MIN_CONFIDENCE_TO_AUTOFILL:
+            suggestions.append(
+                FieldAnswer(
+                    field_id=cf.field_id,
+                    value=None,
+                    autofill=False,
+                    confidence=float(decision.confidence),
+                    source_type="unknown",
+                    source_ref=None,
+                )
+            )
+            continue
 
-    # 5) Persist to live-report log
-    append_scan_report(report)
+        suggestions.append(
+            FieldAnswer(
+                field_id=cf.field_id,
+                value=decision.value,
+                autofill=True,
+                confidence=float(decision.confidence),
+                source_type=decision.source_type,
+                source_ref=decision.source_ref,
+            )
+        )
 
-    # 6) Return suggestions + report to the extension
-    return GenerateAnswersResponse(
-        suggestions=suggestions,
-        report=report,
-    )
+    return GenerateAnswersResponse(suggestions=suggestions)
+
 
 @app.on_event("startup")
 def init_db():
@@ -409,6 +493,12 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
     db.add(r)
     db.commit()
     db.refresh(r)
+    # Build resume chunks + FAISS index (best effort)
+    try:
+        build_index_for_resume(db=db, resume_id=r.id, pdf_path=str(stored_path))
+    except Exception as e:
+        # Don't break upload; just log server-side
+        print("[resume index] failed:", e)    
     return {"id": r.id, "filename": r.original_filename, "sha256": r.sha256, "created_at": r.created_at}
 
 @app.get("/resumes")

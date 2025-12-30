@@ -80,22 +80,19 @@ class GenerateAnswersRequest(BaseModel):
     job_info: Optional[JobInfo] = None
     profile: Optional[Dict[str, Any]] = None       # whatever you store in chrome.storage
     preferences: Optional[Dict[str, Any]] = None   # same
+    resume_id: Optional[int] = None
     fields: List[FieldInput]
 
 
 class FieldAnswer(BaseModel):
-    """
-    Minimal instruction the popup needs to pass back to the content script.
-    """
     field_id: str
-    value: Optional[str] = None                    # text; content script decides how to apply
+    value: Optional[str] = None
+    autofill: bool = False
+    confidence: float = 0.0
+    source_type: str = "unknown"
+    source_ref: Optional[str] = None
 
 
 class GenerateAnswersResponse(BaseModel):
-    """
-    What /generate-answers returns:
-    - suggestions: used to actually fill the form
-    - report: used to show the 'live report' UI and to log for later analysis
-    """
     suggestions: List[FieldAnswer]
-    report: ScanReport
+

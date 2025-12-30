@@ -37,3 +37,4 @@ heavylift/backend/data/
 heavylift/extension/node_modules/
 heavylift/extension/dist/
 **/*.log
+

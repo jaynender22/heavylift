@@ -2,7 +2,8 @@
 from sqlalchemy import String, DateTime, ForeignKey, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-
+from sqlalchemy import ForeignKey, Text
+from sqlalchemy.orm import relationship
 
 from db import Base, utcnow
 
@@ -37,3 +38,15 @@ class ProfileVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     profile: Mapped["Profile"] = relationship(back_populates="versions")
+
+
+class ResumeChunk(Base):
+    __tablename__ = "resume_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    resume_id: Mapped[int] = mapped_column(Integer, ForeignKey("resumes.id"), index=True, nullable=False)
+
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)  # 0..N (matches FAISS id)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
