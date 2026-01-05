@@ -1,22 +1,24 @@
 # backend/app.py
 from resume_search import search_resume, extract_gpa
 from typing import List, Optional
-
+import json
 import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+import hashlib
 from models import (
     FieldInput,
     ClassifyFieldsRequest,
     ClassifyFieldsResponse,
     ClassifiedField,
-    # New imports for generate-answers + live report
     GenerateAnswersRequest,
     GenerateAnswersResponse,
     FieldSuggestion,
     FieldAnswer,
     ScanReport,
+    CorrectionIn,
+    CorrectionsBulkIn,
+    CorrectionsBulkOut,
 )
 from schema import CANONICAL_FIELDS
 from embeddings import classify_field_texts
@@ -28,7 +30,7 @@ from sqlalchemy import select, desc
 import hashlib
 from pathlib import Path
 from db import engine, DATA_DIR, get_db
-from db_models import Base, Resume, Profile, ProfileVersion
+from db_models import Base, Resume, Profile, ProfileVersion, FieldCorrection
 from resume_index import build_index_for_resume
 from rag_config import (
     MIN_CONFIDENCE_TO_AUTOFILL,
@@ -44,7 +46,7 @@ from gemini_decider import decide_value
 from reporting import append_rag_trace
 import re
 from sqlalchemy.orm import Session
-
+from urllib.parse import urlparse
 
 app = FastAPI()
 
@@ -284,6 +286,61 @@ def classify_fields_core(fields: List[FieldInput]) -> List[ClassifiedField]:
     return results
 
 
+def _norm(s: str | None) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _sha1(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
+def make_field_fingerprint(
+    domain: str,
+    label: str,
+    name: str,
+    placeholder: str,
+    field_type: str,
+    html_type: str,
+) -> str:
+    material = "|".join(
+        [
+            _norm(domain),
+            "label:" + _norm(label),
+            "name:" + _norm(name),
+            "ph:" + _norm(placeholder),
+            "ft:" + _norm(field_type),
+            "ht:" + _norm(html_type),
+        ]
+    )
+    return _sha1(material)
+
+
+def make_options_hash(options: list[str] | None) -> str:
+    clean = [_norm(o) for o in (options or []) if _norm(o)]
+    material = json.dumps(clean, ensure_ascii=False)
+    return _sha1(material)
+
+
+def _domain_from_payload(payload: GenerateAnswersRequest) -> str:
+    if payload.domain:
+        return payload.domain
+    url = None
+    if payload.job_info and isinstance(payload.job_info, dict):
+        url = payload.job_info.get("url")
+    elif payload.job_info:
+        url = getattr(payload.job_info, "url", None)
+
+    if url:
+        try:
+            netloc = urlparse(url).netloc
+            return netloc or "unknown"
+        except Exception:
+            return "unknown"
+    return "unknown"
+
+
 # ---------- Endpoints ----------
 
 
@@ -324,6 +381,8 @@ async def generate_answers(
     else:
         print("[generate-answers] resume_id:", payload.resume_id)
 
+    domain = _domain_from_payload(payload)
+
     # 1) Classification (this function already exists in app.py in your project)
     classified = classify_fields_core(fields)
 
@@ -350,6 +409,40 @@ async def generate_answers(
                 )
             )
             continue
+    
+            # 1.5) Corrections Store: highest priority
+        fp = make_field_fingerprint(
+            domain=domain,
+            label=field.label or "",
+            name=field.name or "",
+            placeholder=field.placeholder or "",
+            field_type=field.tag or "",
+            html_type=field.html_type or "",
+        )
+        oh = make_options_hash(field.options or [])
+
+        corr = (
+            db.query(FieldCorrection)
+            .filter(FieldCorrection.domain == domain)
+            .filter(FieldCorrection.fingerprint == fp)
+            .filter(FieldCorrection.options_hash == oh)
+            .first()
+        )
+
+        if corr and corr.correct_value:
+            suggestions.append(
+                FieldAnswer(
+                    field_id=cf.field_id,
+                    value=corr.correct_value,
+                    autofill=True,
+                    confidence=0.99,
+                    source_type="correction",
+                    source_ref=f"corrections:{corr.id}",
+                    fill_strategy=corr.fill_strategy,
+                )
+            )
+            continue
+
 
         # 2) Fast path: canonical mapping when confidence strong
         suggested_value: Optional[str] = None
@@ -615,3 +708,83 @@ def get_profile_version(profile_id: int, version_id: int, db: Session = Depends(
     if not v or v.profile_id != profile_id:
         raise HTTPException(status_code=404, detail="Version not found")
     return {"id": v.id, "profile_id": v.profile_id, "resume_id": v.resume_id, "created_at": v.created_at, "data": v.data}
+
+
+@app.post("/corrections/bulk", response_model=CorrectionsBulkOut)
+def upsert_corrections(
+    payload: CorrectionsBulkIn,
+    db: Session = Depends(get_db),
+) -> CorrectionsBulkOut:
+    saved = 0
+    updated = 0
+
+    for item in payload.items:
+        fp = make_field_fingerprint(
+            domain=item.domain,
+            label=item.label or "",
+            name=item.name or "",
+            placeholder=item.placeholder or "",
+            field_type=item.field_type or "",
+            html_type=item.html_type or "",
+        )
+        oh = make_options_hash(item.options or [])
+
+        existing = (
+            db.query(FieldCorrection)
+            .filter(FieldCorrection.domain == item.domain)
+            .filter(FieldCorrection.fingerprint == fp)
+            .filter(FieldCorrection.options_hash == oh)
+            .first()
+        )
+
+        if existing:
+            existing.correct_value = item.correct_value
+            existing.fill_strategy = item.fill_strategy
+            existing.question_text = item.question_text
+            existing.field_type = item.field_type
+            existing.options_json = json.dumps(item.options or [], ensure_ascii=False)
+            existing.hits = (existing.hits or 0) + 1
+            db.add(existing)
+            updated += 1
+        else:
+            row = FieldCorrection(
+                domain=item.domain,
+                fingerprint=fp,
+                options_hash=oh,
+                question_text=item.question_text,
+                field_type=item.field_type,
+                options_json=json.dumps(item.options or [], ensure_ascii=False),
+                correct_value=item.correct_value,
+                fill_strategy=item.fill_strategy,
+                hits=1,
+            )
+            db.add(row)
+            saved += 1
+
+    db.commit()
+    return CorrectionsBulkOut(saved=saved, updated=updated)
+
+@app.get("/corrections/export")
+def export_corrections(db: Session = Depends(get_db)):
+    rows = (
+        db.query(FieldCorrection)
+        .order_by(FieldCorrection.updated_at.desc())
+        .all()
+    )
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "domain": r.domain,
+                "fingerprint": r.fingerprint,
+                "options_hash": r.options_hash,
+                "question_text": r.question_text,
+                "field_type": r.field_type,
+                "options": json.loads(r.options_json) if r.options_json else [],
+                "correct_value": r.correct_value,
+                "fill_strategy": r.fill_strategy,
+                "hits": r.hits,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+        )
+    return out

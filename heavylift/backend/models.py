@@ -81,6 +81,7 @@ class GenerateAnswersRequest(BaseModel):
     profile: Optional[Dict[str, Any]] = None       # whatever you store in chrome.storage
     preferences: Optional[Dict[str, Any]] = None   # same
     resume_id: Optional[int] = None
+    domain: Optional[str] = None  
     fields: List[FieldInput]
 
 
@@ -91,8 +92,31 @@ class FieldAnswer(BaseModel):
     confidence: float = 0.0
     source_type: str = "unknown"
     source_ref: Optional[str] = None
+    fill_strategy: Optional[str] = None
 
 
 class GenerateAnswersResponse(BaseModel):
     suggestions: List[FieldAnswer]
 
+
+class CorrectionIn(BaseModel):
+    domain: str
+    label: Optional[str] = None
+    name: Optional[str] = None
+    placeholder: Optional[str] = None
+    field_type: Optional[str] = None      # text/select/radio/combobox
+    html_type: Optional[str] = None       # input type="text"/"email"/...
+    options: Optional[List[str]] = None
+    question_text: Optional[str] = None
+
+    correct_value: str
+    fill_strategy: str                    # "type_text" / "select_exact" / "radio_label" / "combobox_type_enter"
+
+
+class CorrectionsBulkIn(BaseModel):
+    items: List[CorrectionIn]
+
+
+class CorrectionsBulkOut(BaseModel):
+    saved: int
+    updated: int

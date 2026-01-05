@@ -39,6 +39,7 @@
   interface PopupFillFieldValue {
     fieldId: string;
     value: string | string[] | boolean;
+    strategy?: string;
   }
 
   interface PopupFillFieldsRequest {
@@ -112,34 +113,35 @@
   }
 
   interface GenerateAnswersRequest {
-  job_info?: { url?: string | null } | null;
-  profile?: any | null;
-  preferences?: any | null;
-  resume_id?: number | null;
-  fields: {
-    id: string;
-    label?: string;
-    name?: string;
-    placeholder?: string;
-    tag?: string;
-    html_type?: string;
-    options?: string[] | null;
-  }[];
-}
+    job_info?: { url?: string | null } | null;
+    profile?: any | null;
+    preferences?: any | null;
+    resume_id?: number | null;
+    domain?: string | null; // NEW
+    fields: {
+      id: string;
+      label?: string;
+      name?: string;
+      placeholder?: string;
+      tag?: string;
+      html_type?: string;
+      options?: string[] | null;
+    }[];
+  }
 
-interface GenerateAnswer {
-  field_id: string;
-  value: string | null;
-  autofill: boolean;
-  confidence: number;
-  source_type: string;
-  source_ref?: string | null;
-}
+  interface GenerateAnswer {
+    field_id: string;
+    value: string | null;
+    autofill: boolean;
+    confidence: number;
+    source_type: string;
+    source_ref?: string | null;
+    fill_strategy?: string | null; // NEW
+  }
 
-interface GenerateAnswersResponse {
-  suggestions: GenerateAnswer[];
-}
-
+  interface GenerateAnswersResponse {
+    suggestions: GenerateAnswer[];
+  }
 
   // ---------- Constants ----------
   const PROFILE_KEY = "heavylift_profile";
@@ -241,6 +243,10 @@ interface GenerateAnswersResponse {
   let currentResumeId: number | null = null;
   let currentProfileId: number | null = null;
   let currentVersionId: number | null = null;
+  let lastSuggestions: GenerateAnswer[] = [];
+  let saveCorrectionsBtn: HTMLButtonElement | null = null;
+  let correctionsStatusEl: HTMLDivElement | null = null;
+
 
   // ---------- Small helpers ----------
   function setStatus(msg: string) {
@@ -256,6 +262,11 @@ interface GenerateAnswersResponse {
     profilePanel.classList.toggle("active", profileActive);
     prefsPanel.classList.toggle("active", !profileActive);
   }
+
+  function setCorrectionsStatus(msg: string) {
+    if (correctionsStatusEl) correctionsStatusEl.textContent = msg;
+  }
+
 
   // ---------- Storage helpers (chrome.storage.local) ----------
   function loadProfile(): Promise<Profile | null> {
@@ -765,6 +776,7 @@ interface GenerateAnswersResponse {
     try {
       const tab = await getActiveTab();
       const url = tab.url || null;
+      const domain = url ? new URL(url).host : null;
       console.log("[Heavylift] resume_id being sent:", currentResumeId);
       if (!currentResumeId) {
         const latest = await getLatestResumeId();
@@ -772,22 +784,23 @@ interface GenerateAnswersResponse {
       }
 
       // Call backend /generate-answers
-      const resp = await generateAnswers({
-        job_info: { url },
-        profile: profile || null,
-        preferences: prefs || null,
-        resume_id: currentResumeId || null, // make sure currentResumeId exists in your popup.ts state
-        fields: backendFields,
-      });
+    const resp = await generateAnswers({
+      job_info: { url },
+      profile: profile || null,
+      preferences: prefs || null,
+      resume_id: currentResumeId || null, // make sure currentResumeId exists in your popup.ts state
+      fields: backendFields,
+      domain,
+    });
 
-      const values: PopupFillFieldsRequest["values"] = resp.suggestions
-        .filter((s) => s.autofill && s.value)
-        .map((s) => ({ fieldId: s.field_id, value: s.value! }));
+    const values: PopupFillFieldsRequest["values"] = resp.suggestions
+      .filter((s) => s.autofill && s.value)
+      .map((s): PopupFillFieldValue => ({
+        fieldId: s.field_id,
+        value: s.value!,
+        ...(s.fill_strategy ? { strategy: s.fill_strategy } : {}), // ✅ only add when we have a string
+      }));
 
-      if (!values.length) {
-        setStatus("No high-confidence fields to autofill (safe mode).");
-        return;
-      }
 
       // Send fill instructions to content script
       const req: PopupFillFieldsRequest = { type: "FILL_FIELDS", values };
@@ -808,6 +821,103 @@ interface GenerateAnswersResponse {
     }
   }
 
+
+    function inferStrategy(field: PopupFieldInfo): string {
+    if (field.fieldType === "select") return "select_exact";
+    if (field.fieldType === "radio") return "radio_label";
+    return "type_text"; // combobox behavior is detected in content.ts
+  }
+
+  async function saveCorrections() {
+    try {
+      if (!currentFields.length) {
+        setCorrectionsStatus("Scan fields first.");
+        return;
+      }
+      if (!lastSuggestions.length) {
+        setCorrectionsStatus("Fill from Saved once before saving corrections.");
+        return;
+      }
+
+      const tab = await getActiveTab();
+      if (!tab.id) {
+        setCorrectionsStatus("No active tab.");
+        return;
+      }
+
+      const url = tab.url || "";
+      const domain = url ? new URL(url).host : "";
+
+      const fieldIds = currentFields.map((f) => f.id);
+
+      const valuesResp = await new Promise<any>((resolve) => {
+        chrome.tabs.sendMessage(
+          tab.id!,
+          { type: "GET_FIELD_VALUES", fieldIds },
+          resolve
+        );
+      });
+
+      const currentValues: { fieldId: string; value: string | null; selectedText: string | null }[] =
+        valuesResp?.values || [];
+
+      const sugById = new Map<string, GenerateAnswer>();
+      for (const s of lastSuggestions) {
+        sugById.set(s.field_id, s);
+      }
+
+      const corrections: any[] = [];
+
+      for (const f of currentFields) {
+        const cur = currentValues.find((x) => x.fieldId === f.id);
+        const curVal = (cur?.selectedText || cur?.value || "").toString().trim();
+        if (!curVal) continue;
+
+        const sug = sugById.get(f.id);
+        const sugVal = (sug?.value || "").toString().trim();
+
+        // Only save when the current value differs from what we autofilled
+        if (!curVal || curVal === sugVal) continue;
+
+        corrections.push({
+          domain,
+          label: f.label || "",
+          name: f.name || "",
+          placeholder: f.placeholder || "",
+          field_type: f.fieldType || "",
+          html_type: f.htmlType || "",
+          options: f.options || [],
+          question_text: `${f.label || ""} ${f.placeholder || ""}`.trim(),
+          correct_value: curVal,
+          fill_strategy: inferStrategy(f),
+        });
+      }
+
+      if (!corrections.length) {
+        setCorrectionsStatus("No changes detected to save.");
+        return;
+      }
+
+      setCorrectionsStatus(`Saving ${corrections.length} correction(s)...`);
+
+      const res = await fetch(`${API_BASE}/corrections/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: corrections }),
+      });
+
+      if (!res.ok) {
+        setCorrectionsStatus("Save failed (check backend logs).");
+        return;
+      }
+
+      const out = await res.json();
+      setCorrectionsStatus(`Saved: ${out.saved}, Updated: ${out.updated}`);
+    } catch (e) {
+      console.error(e);
+      setCorrectionsStatus("Save failed. See console.");
+    }
+  }
 
   // ---------- Backend storage wiring ----------
 async function refreshProfilesAndVersions(selectProfileId?: number) {
@@ -873,6 +983,8 @@ async function refreshProfilesAndVersions(selectProfileId?: number) {
     tabPrefsBtn = document.getElementById("tabPrefsBtn") as HTMLButtonElement | null;
     profilePanel = document.getElementById("tab-profile") as HTMLDivElement | null;
     prefsPanel = document.getElementById("tab-preferences") as HTMLDivElement | null;
+    saveCorrectionsBtn = document.getElementById("saveCorrectionsBtn") as HTMLButtonElement | null;
+    correctionsStatusEl = document.getElementById("correctionsStatus") as HTMLDivElement | null;
 
     // Profile inputs
     firstNameInput = document.getElementById("profileFirstName") as HTMLInputElement | null;
@@ -950,7 +1062,7 @@ async function refreshProfilesAndVersions(selectProfileId?: number) {
     scanBtn?.addEventListener("click", () => scanPageFields());
     testFillBtn?.addEventListener("click", () => testFill());
     fillProfileBtn?.addEventListener("click", () => fillFromSavedInfo());
-
+    saveCorrectionsBtn?.addEventListener("click", () => saveCorrections());
     saveProfileBtn?.addEventListener("click", async () => {
       const profile = buildProfileFromInputs();
       await saveProfile(profile);

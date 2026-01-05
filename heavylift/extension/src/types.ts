@@ -36,7 +36,11 @@ export interface ScanFieldsResponse {
 
 export interface FillFieldsRequest {
   type: 'FILL_FIELDS';
-  values: { fieldId: string; value: string | string[] | boolean }[];
+  values: {
+    fieldId: string;
+    value: string | string[] | boolean;
+    strategy?: string;   // ✅ new
+  }[];
 }
 
 // Anything the content script might receive

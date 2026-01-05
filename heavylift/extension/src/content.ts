@@ -31,6 +31,7 @@
   interface FillFieldValue {
     fieldId: string;
     value: string | string[] | boolean;
+    strategy?: string;
   }
 
   const fieldRegistry = new Map<string, HTMLElement>();
@@ -541,6 +542,51 @@
       return true;
     }
 
+    if (message.type === "GET_FIELD_VALUES" && Array.isArray(message.fieldIds)) {
+      const fieldIds: string[] = message.fieldIds;
+      const values = fieldIds.map((id) => {
+        const el = resolveElement(id) as any;
+        if (!el) {
+          return { fieldId: id, value: null, selectedText: null };
+        }
+
+        if (el instanceof HTMLSelectElement) {
+          const opt = el.selectedOptions?.[0];
+          return {
+            fieldId: id,
+            value: el.value ?? "",
+            selectedText: opt?.textContent ?? "",
+          };
+        }
+
+        if (el instanceof HTMLInputElement && el.type === "radio") {
+          const name = el.name;
+          const checked = name
+            ? (document.querySelector(
+                `input[type="radio"][name="${CSS.escape(name)}"]:checked`
+              ) as HTMLInputElement | null)
+            : el.checked
+            ? el
+            : null;
+
+          return {
+            fieldId: id,
+            value: checked?.value ?? "",
+            selectedText: checked ? checked.value : "",
+          };
+        }
+
+        return {
+          fieldId: id,
+          value: (el.value ?? "").toString(),
+          selectedText: null,
+        };
+      });
+
+      sendResponse({ values });
+      return true;
+    }
+
 
     if (message.type === "FILL_FIELDS" && Array.isArray(message.values)) {
       const values = message.values as FillFieldValue[];
@@ -553,13 +599,36 @@
         const el = resolveElement(fieldId);
         if (!el) continue;
 
-        fillElement(el, item.value);
+        if (item.strategy === "select_exact" && el instanceof HTMLSelectElement) {
+          const want = String(item.value ?? "").trim().toLowerCase();
+          let matched = false;
+          for (const opt of Array.from(el.options)) {
+            const text = (opt.textContent || "").trim().toLowerCase();
+            const val = (opt.value || "").trim().toLowerCase();
+            if (text === want || val === want) {
+              el.value = opt.value;
+              triggerInputEvents(el);
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) {
+            fillElement(el, item.value);
+          }
+        } else if (item.strategy === "radio_label" && el instanceof HTMLInputElement && el.type === "radio") {
+          // your existing radio handling in fillElement is label-aware
+          fillElement(el, item.value);
+        } else {
+          fillElement(el, item.value);
+        }
+
         filled += 1;
       }
 
       sendResponse({ ok: true, filled });
       return true;
     }
+
 
     // Backward compatible: { type: "APPLY_ANSWERS", answers: { [id]: string } }
     if (message.type === "APPLY_ANSWERS" && message.answers) {
