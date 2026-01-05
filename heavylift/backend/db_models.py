@@ -4,7 +4,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from sqlalchemy import ForeignKey, Text
 from sqlalchemy.orm import relationship
-
+from sqlalchemy import Column, Integer, String, DateTime, Text, UniqueConstraint
+from sqlalchemy.sql import func
 from db import Base, utcnow
 
 class Resume(Base):
@@ -50,3 +51,29 @@ class ResumeChunk(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class FieldCorrection(Base):
+    __tablename__ = "field_corrections"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    domain = Column(String(255), index=True)              # jobs.lever.co
+    fingerprint = Column(String(64), index=True)          # sha1 hex
+    options_hash = Column(String(64), index=True)         # sha1 hex
+
+    question_text = Column(Text, nullable=True)
+    field_type = Column(String(50), nullable=True)        # text/select/radio/combobox...
+    options_json = Column(Text, nullable=True)            # store options snapshot as JSON string
+
+    correct_value = Column(Text, nullable=False)
+    fill_strategy = Column(String(64), nullable=False)    # type_text/select_exact/radio_label/combobox_type_enter
+
+    hits = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("domain", "fingerprint", "options_hash", name="uq_domain_fp_opts"),
+    )

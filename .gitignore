@@ -38,3 +38,12 @@ heavylift/extension/node_modules/
 heavylift/extension/dist/
 **/*.log
 
+# Local DB + traces + caches
+heavylift/backend/data/*.sqlite3
+heavylift/backend/data/resumes/
+heavylift/backend/data/resume_cache/
+heavylift/backend/rag_traces.jsonl
+
+# Python env
+heavylift/backend/.venv/
+heavylift/backend/__pycache__/

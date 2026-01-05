@@ -523,14 +523,22 @@ interface GenerateAnswersResponse {
   }
 
   async function generateAnswers(payload: GenerateAnswersRequest): Promise<GenerateAnswersResponse> {
-  const res = await fetch(`${API_BASE}/generate-answers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
+    const res = await fetch(`${API_BASE}/generate-answers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async function getLatestResumeId(): Promise<number | null> {
+    const res = await fetch(`${API_BASE}/resumes/latest`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.resume_id ? Number(data.resume_id) : null;
+  }
+
 
   // ---------- Snapshot helpers (what gets versioned) ----------
   function getCurrentProfileSnapshot(): Record<string, any> {
@@ -731,9 +739,10 @@ interface GenerateAnswersResponse {
     }
 
     // Ensure we have fields scanned
-    if (!currentFields.length) {
-      await scanPageFields();
-    }
+    
+    await scanPageFields();
+    await classifyCurrentFields();
+  
 
     if (!currentFields.length) {
       setStatus("No fillable fields found on this page.");
@@ -756,6 +765,11 @@ interface GenerateAnswersResponse {
     try {
       const tab = await getActiveTab();
       const url = tab.url || null;
+      console.log("[Heavylift] resume_id being sent:", currentResumeId);
+      if (!currentResumeId) {
+        const latest = await getLatestResumeId();
+        if (latest) currentResumeId = latest;
+      }
 
       // Call backend /generate-answers
       const resp = await generateAnswers({
@@ -985,6 +999,7 @@ async function refreshProfilesAndVersions(selectProfileId?: number) {
       try {
         const uploaded = await uploadResume(file);
         currentResumeId = uploaded.id;
+        await chrome.storage.local.set({ currentResumeId: uploaded.id });
         setResumeStatus(`Uploaded: ${uploaded.filename} (id=${uploaded.id})`);
       } catch (e: any) {
         console.error(e);
@@ -1035,6 +1050,17 @@ async function refreshProfilesAndVersions(selectProfileId?: number) {
       }
     });
   }
+
+(async () => {
+  const stored = await chrome.storage.local.get(["currentResumeId"]);
+  const rid = Number(stored?.currentResumeId);
+
+  if (Number.isFinite(rid) && rid > 0) {
+    currentResumeId = rid;
+    setResumeStatus(`Using saved resume (id=${rid})`);
+  }
+})();
+
 
   async function init() {
     bindDom();

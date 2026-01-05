@@ -118,6 +118,100 @@
     el.dispatchEvent(new KeyboardEvent("keyup", init));
   }
 
+  function isTextLikeInputType(t: string): boolean {
+  const tt = (t || "").toLowerCase();
+  return ["", "text", "search", "password"].includes(tt);
+}
+
+  function isComboBoxLikeInput(input: HTMLInputElement): boolean {
+    const role = (input.getAttribute("role") || "").toLowerCase();
+    const ariaAutocomplete = (input.getAttribute("aria-autocomplete") || "").toLowerCase();
+    const ariaControls = input.getAttribute("aria-controls") || input.getAttribute("aria-owns") || "";
+    const hasList = !!input.getAttribute("list");
+
+    // Common signals for ATS-style location pickers (Lever/Greenhouse/etc.)
+    return (
+      role === "combobox" ||
+      ariaAutocomplete === "list" ||
+      ariaAutocomplete === "both" ||
+      ariaControls.length > 0 ||
+      hasList
+    );
+  }
+
+  function trySelectComboOption(input: HTMLInputElement, desired: string): boolean {
+    const desiredLower = desired.trim().toLowerCase();
+    if (!desiredLower) return false;
+
+    const listId = input.getAttribute("aria-controls") || input.getAttribute("aria-owns");
+    const listEl = listId ? document.getElementById(listId) : null;
+
+    const candidates: HTMLElement[] = [];
+
+    if (listEl) {
+      candidates.push(
+        ...Array.from(
+          listEl.querySelectorAll<HTMLElement>(
+            '[role="option"], li[role="option"], div[role="option"], li, div'
+          )
+        )
+      );
+    }
+
+    // Fallback: any listbox options in the document (common pattern)
+    if (!candidates.length) {
+      candidates.push(
+        ...Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[role="listbox"] [role="option"], [role="listbox"] li'
+          )
+        )
+      );
+    }
+
+    const match =
+      candidates.find((c) => (c.textContent || "").trim().toLowerCase().includes(desiredLower)) ||
+      candidates[0];
+
+    if (!match) return false;
+
+    try {
+      match.scrollIntoView({ block: "nearest" });
+    } catch {}
+
+    dispatchMouseClick(match);
+    return true;
+  }
+
+  function fillComboBox(input: HTMLInputElement, desired: string) {
+    const v = String(desired ?? "").trim();
+    if (!v) return;
+
+    input.focus();
+
+    // Clear first (many comboboxes require a change to trigger suggestions)
+    setNativeValue(input, "");
+    triggerInputEvents(input);
+
+    setNativeValue(input, v);
+    triggerInputEvents(input);
+
+    // Give the UI a moment to render suggestions
+    setTimeout(() => {
+      const clicked = trySelectComboOption(input, v);
+
+      // Fallback: keyboard selection (ArrowDown + Enter)
+      if (!clicked) {
+        dispatchKey(input, "ArrowDown");
+        dispatchKey(input, "Enter");
+      }
+
+      triggerInputEvents(input);
+      input.blur();
+    }, 200);
+  }
+
+
   function bestClickableForRadio(input: HTMLInputElement): HTMLElement {
     // On Lever, the input is often inside a <label> (your screenshot shows that).
     const wrapLabel = input.closest("label");
@@ -137,6 +231,30 @@
 
     // Fallback: click nearest block container
     return (input.closest("li, div, fieldset") as HTMLElement) || input;
+  }
+
+
+  function sleep(ms: number) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  async function scanPageFieldsWithLazyLoad(): Promise<PopupFieldInfo[]> {
+    // First scan (whatever is currently rendered)
+    let fields = scanPageFields();
+
+    // Force lazy sections to render (GPA is commonly below)
+    try {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" as any });
+    } catch {
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    await sleep(400);
+
+    // Re-scan after scrolling (now GPA usually exists)
+    fields = scanPageFields();
+
+    return fields;
   }
 
   // ---------- Selector / scan ----------
@@ -387,13 +505,20 @@
         return;
       }
 
-      // Text-like inputs
+      // Text-like inputs (including autocomplete/combobox fields like "Current location")
       const v = Array.isArray(value) ? value.join(", ") : String(value ?? "");
+
+      if (isTextLikeInputType(t) && isComboBoxLikeInput(el)) {
+        fillComboBox(el, v);
+        return;
+      }
+
       el.focus();
       setNativeValue(el, v);
       triggerInputEvents(el);
       el.blur();
       return;
+
     }
   }
 
@@ -407,10 +532,15 @@
     if (!message || typeof message !== "object") return;
 
     if (message.type === "SCAN_FIELDS") {
-      const fields = scanPageFields();
-      sendResponse({ fields });
+      scanPageFieldsWithLazyLoad()
+        .then((fields) => sendResponse({ fields }))
+        .catch((e) => {
+          console.error("[Heavylift] scan failed:", e);
+          sendResponse({ fields: [] });
+        });
       return true;
     }
+
 
     if (message.type === "FILL_FIELDS" && Array.isArray(message.values)) {
       const values = message.values as FillFieldValue[];

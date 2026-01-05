@@ -1,5 +1,5 @@
 # backend/app.py
-
+from resume_search import search_resume, extract_gpa
 from typing import List, Optional
 
 import time
@@ -27,7 +27,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, desc
 import hashlib
 from pathlib import Path
-
 from db import engine, DATA_DIR, get_db
 from db_models import Base, Resume, Profile, ProfileVersion
 from resume_index import build_index_for_resume
@@ -43,7 +42,8 @@ from fact_retrieval import retrieve_top_facts
 from resume_index import search_resume
 from gemini_decider import decide_value
 from reporting import append_rag_trace
-
+import re
+from sqlalchemy.orm import Session
 
 
 app = FastAPI()
@@ -295,26 +295,36 @@ async def classify_fields(payload: ClassifyFieldsRequest) -> ClassifyFieldsRespo
 
 
 @app.post("/generate-answers", response_model=GenerateAnswersResponse)
-async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersResponse:
+async def generate_answers(
+    payload: GenerateAnswersRequest,
+    db: Session = Depends(get_db),
+) -> GenerateAnswersResponse:
     """
     Main endpoint the extension calls when user clicks 'Fill from saved info'.
 
     Flow:
       1) Classify fields -> canonical keys, sources, sensitivity.
       2) For each field, try to pull a value from profile/preferences.
-      3) Optionally (later) use Gemini/ML for remaining 'unknown' fields.
-      4) Build a ScanReport and log it.
-      5) Return minimal fill instructions + full report.
+      3) Optionally use RAG + Gemini for remaining fields.
+      4) Log trace server-side.
+      5) Return minimal fill instructions.
     """
     fields: List[FieldInput] = payload.fields or []
     profile = payload.profile or {}
     preferences = payload.preferences or {}
 
-    # Handy debug if you want to see what preferences look like:
-    # print("[profile]", profile)
-    # print("[preferences]", preferences)
+    # If extension didn't send resume_id (popup reset), fall back to latest resume
+    if not payload.resume_id:
+        latest = db.query(Resume).order_by(Resume.id.desc()).first()
+        if latest:
+            payload.resume_id = latest.id
+            print("[generate-answers] resume_id missing; using latest:", payload.resume_id)
+        else:
+            print("[generate-answers] resume_id missing; no resumes found")
+    else:
+        print("[generate-answers] resume_id:", payload.resume_id)
 
-    # 1) Classification (reuse core logic)
+    # 1) Classification (this function already exists in app.py in your project)
     classified = classify_fields_core(fields)
 
     suggestions: List[FieldAnswer] = []
@@ -334,14 +344,14 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
                     field_id=cf.field_id,
                     value=None,
                     autofill=False,
-                    confidence=cf.confidence,
+                    confidence=float(cf.confidence),
                     source_type="unknown",
                     source_ref=None,
                 )
             )
             continue
 
-        # 1) Fast path: canonical mapping when confidence strong
+        # 2) Fast path: canonical mapping when confidence strong
         suggested_value: Optional[str] = None
         source_type = "unknown"
         source_ref: Optional[str] = None
@@ -378,8 +388,7 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
             )
             continue
 
-        # 2) Hard path: RAG + Gemini
-        # Build a query string from field metadata
+        # 3) Hard path: RAG + Gemini
         field_question = " ".join(
             [
                 (field.label or "").strip(),
@@ -388,8 +397,21 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
                 ("Options: " + ", ".join(field.options or [])) if field.options else "",
             ]
         ).strip()
-
-        # Retrieve evidence locally
+# GPA fast-path (very reliable)
+        if payload.resume_id and re.search(r"\bgpa\b", field_question, re.IGNORECASE):
+            gpa = extract_gpa(db, payload.resume_id)
+            if gpa:
+                suggestions.append(
+                    FieldAnswer(
+                        field_id=cf.field_id,
+                        value=gpa,
+                        autofill=True,
+                        confidence=0.99,
+                        source_type="resume",
+                        source_ref="resume.gpa",
+                    )
+                )
+                continue
         top_facts = retrieve_top_facts(field_question, facts_all, top_k=MAX_FACTS_TO_SEND)
 
         top_chunks = []
@@ -400,7 +422,6 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
                 print("[resume search] failed:", e)
                 top_chunks = []
 
-        # Ask Gemini to choose the best value from evidence
         decision = decide_value(
             field_question=field_question,
             field_type=field.html_type or field.tag or "text",
@@ -409,7 +430,6 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
             candidate_chunks=top_chunks,
         )
 
-        # Log evidence + decision in backend only
         append_rag_trace(
             {
                 "field_id": cf.field_id,
@@ -423,8 +443,8 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
             }
         )
 
-        # Safe mode thresholds: you requested 0.55–0.60 returns NULL (for now)
-        if decision.confidence < MIN_CONFIDENCE_TO_RETURN_VALUE:
+        # Safe mode thresholds: below 0.60 returns NULL
+        if float(decision.confidence) < MIN_CONFIDENCE_TO_RETURN_VALUE:
             suggestions.append(
                 FieldAnswer(
                     field_id=cf.field_id,
@@ -437,9 +457,7 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
             )
             continue
 
-        # If we ever allow "return but not autofill" later, that’s where it would go.
-        # For now (your choice): return null unless we can autofill.
-        if decision.confidence < MIN_CONFIDENCE_TO_AUTOFILL:
+        if float(decision.confidence) < MIN_CONFIDENCE_TO_AUTOFILL:
             suggestions.append(
                 FieldAnswer(
                     field_id=cf.field_id,
@@ -466,12 +484,22 @@ async def generate_answers(payload: GenerateAnswersRequest) -> GenerateAnswersRe
     return GenerateAnswersResponse(suggestions=suggestions)
 
 
+
 @app.on_event("startup")
 def init_db():
     Base.metadata.create_all(bind=engine)
 
 def _sha256_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
+def _safe_filename(name: str) -> str:
+    name = name or "resume.pdf"
+    name = Path(name).name
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+    if not Path(name).suffix:
+        name += ".pdf"
+    return name
+
 
 @app.post("/resumes")
 async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -480,26 +508,39 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="Empty file")
 
     sha = _sha256_bytes(content)
-    ext = Path(file.filename or "resume").suffix or ".bin"
+    ext = Path(file.filename or "resume.pdf").suffix or ".pdf"
+    safe_name = _safe_filename(file.filename or f"resume{ext}")
 
+    # Local storage base
     resumes_dir = DATA_DIR / "resumes"
     resumes_dir.mkdir(parents=True, exist_ok=True)
 
-    stored_path = resumes_dir / f"{sha}{ext}"
-    if not stored_path.exists():
-        stored_path.write_bytes(content)
-
-    r = Resume(original_filename=file.filename or "resume", stored_path=str(stored_path), sha256=sha)
+    # 1) Create DB row first (we need id)
+    placeholder_path = str(resumes_dir / f"{sha}{ext}")
+    r = Resume(original_filename=file.filename or "resume", stored_path=placeholder_path, sha256=sha)
     db.add(r)
     db.commit()
     db.refresh(r)
-    # Build resume chunks + FAISS index (best effort)
-    try:
-        build_index_for_resume(db=db, resume_id=r.id, pdf_path=str(stored_path))
-    except Exception as e:
-        # Don't break upload; just log server-side
-        print("[resume index] failed:", e)    
+
+    # 2) Save by resume id in a stable path
+    resume_folder = resumes_dir / str(r.id)
+    resume_folder.mkdir(parents=True, exist_ok=True)
+
+    final_path = resume_folder / safe_name
+    final_path.write_bytes(content)
+
+    # 3) Optionally also keep sha copy for dedupe (not required, but nice)
+    sha_path = resumes_dir / f"{sha}{ext}"
+    if not sha_path.exists():
+        sha_path.write_bytes(content)
+
+    # 4) Update DB stored_path to the final stable path
+    r.stored_path = str(final_path)
+    db.add(r)
+    db.commit()
+
     return {"id": r.id, "filename": r.original_filename, "sha256": r.sha256, "created_at": r.created_at}
+
 
 @app.get("/resumes")
 def list_resumes(db: Session = Depends(get_db)):
@@ -512,6 +553,14 @@ def download_resume(resume_id: int, db: Session = Depends(get_db)):
     if not r:
         raise HTTPException(status_code=404, detail="Resume not found")
     return FileResponse(path=r.stored_path, filename=r.original_filename)
+
+@app.get("/resumes/latest")
+def get_latest_resume(db: Session = Depends(get_db)):
+    r = db.query(Resume).order_by(Resume.id.desc()).first()
+    if not r:
+        return {"resume_id": None}
+    return {"resume_id": r.id, "stored_path": r.stored_path, "original_filename": r.original_filename}
+
 
 @app.post("/profiles")
 def create_profile(payload: dict, db: Session = Depends(get_db)):
